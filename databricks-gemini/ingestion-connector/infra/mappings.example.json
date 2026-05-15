@@ -1,0 +1,25 @@
+{
+  "groups": [
+    {
+      "databricks_group": "data-engineers",
+      "google_group": "data-eng@example.com"
+    },
+    {
+      "databricks_group": "policy-readers",
+      "google_group": "policy-readers@example.com"
+    },
+    {
+      "databricks_group": "contractors-2026",
+      "expand_members": true,
+      "user_overrides": {
+        "vendor_a.databricks": "vendor.a@example.com"
+      }
+    }
+  ],
+  "users": [
+    {
+      "databricks_user_name": "service.ingest@example.com"
+    }
+  ],
+  "user_overrides": {}
+}

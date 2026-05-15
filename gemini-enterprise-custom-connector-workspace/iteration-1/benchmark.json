@@ -1,0 +1,639 @@
+{
+  "metadata": {
+    "skill_name": "gemini-enterprise-custom-connector",
+    "skill_path": "/Users/Molly.Depew/custom-connectors/gemini-enterprise-custom-connector",
+    "executor_model": "<model-name>",
+    "analyzer_model": "<model-name>",
+    "timestamp": "2026-05-15T16:36:00Z",
+    "evals_run": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "runs_per_configuration": 3
+  },
+  "runs": [
+    {
+      "eval_id": 0,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 13,
+        "failed": 0,
+        "total": 13,
+        "time_seconds": 196.2,
+        "tokens": 30439,
+        "tool_calls": null,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Recommends Custom MCP Server as the primary path for the Snowflake warehouse use case (not a Discovery Engine ingestion connector replicating warehouse data).",
+          "passed": true,
+          "evidence": "response.md heading 'Recommendation: custom MCP server (not an ingestion connector)' and: 'For a Snowflake warehouse holding sales data, the right answer is **MCP server**.' README also has section 'Why MCP (not an ingestion connector)'."
+        },
+        {
+          "text": "Explains why ingesting a warehouse into Discovery Engine is the wrong pattern (live query semantics, scale, cost of replication).",
+          "passed": true,
+          "evidence": "response.md: 'Replicating it into a Discovery Engine search index doubles your storage cost, loses Snowflake's SQL semantics (joins, aggregations, window functions), and serves stale data. Sales questions (...) require live state and SQL'. Covers cost, semantics, and staleness."
+        },
+        {
+          "text": "Specifies that the MCP server must use StreamableHTTP transport (NOT SSE, which Gemini Enterprise does not support).",
+          "passed": true,
+          "evidence": "response.md: '**StreamableHTTP transport, not SSE.** Gemini's MCP client will refuse SSE.' server.py: 'mcp.run(transport=\"streamable-http\", host=\"0.0.0.0\", port=8080, path=\"/mcp\")' with comment 'SSE is NOT supported by Gemini Enterprise.'"
+        },
+        {
+          "text": "Notes that the MCP endpoint must be HTTPS and conventionally ends in /mcp.",
+          "passed": true,
+          "evidence": "response.md: '**HTTPS endpoint, conventionally `/mcp`.** Cloud Run gives you HTTPS automatically'. Also 'MCP URL `https://<cloud-run-host>/mcp`'. server.py runs with path='/mcp'."
+        },
+        {
+          "text": "Defines a tool surface that includes a SELECT-style run_query (or equivalent) tool, ideally with descriptive name and JSON Schema inputs.",
+          "passed": true,
+          "evidence": "server.py defines @mcp.tool() run_query(sql: str, max_rows: int = 100) -> dict with detailed docstring (FastMCP generates JSON Schema from type annotations). Tool surface also includes list_tables, describe_table, get_record."
+        },
+        {
+          "text": "Bakes in a guardrail that rejects non-SELECT statements (DDL/DML), rather than trusting string matching alone.",
+          "passed": true,
+          "evidence": "source_client.py _validate_select_only uses sqlglot.parse with snowflake dialect, checks FORBIDDEN_STATEMENT_TYPES (Insert, Update, Delete, Merge, Create, Drop, Alter, TruncateTable, Command). response.md explicitly says: 'parsed with sqlglot in `snowflake` dialect. String matching (...) is not enough'."
+        },
+        {
+          "text": "Includes a row cap / LIMIT injection so a single tool call cannot return arbitrarily large result sets.",
+          "passed": true,
+          "evidence": "source_client.py defines HARD_ROW_CAP = 1000 and _inject_limit wraps the parsed statement with parsed.limit(capped); max_rows is capped via min(max_rows, 1000) in both server.py and source_client.py."
+        },
+        {
+          "text": "Mentions a Snowflake statement timeout (e.g., STATEMENT_TIMEOUT_IN_SECONDS) to prevent runaway queries from burning warehouse credits.",
+          "passed": true,
+          "evidence": "source_client.py sets session_parameters={'STATEMENT_TIMEOUT_IN_SECONDS': STATEMENT_TIMEOUT_SECONDS} where STATEMENT_TIMEOUT_SECONDS=60. response.md: '`STATEMENT_TIMEOUT_IN_SECONDS = 60` is set at the session level so a runaway query can't burn a hole in your bill.'"
+        },
+        {
+          "text": "Discusses Snowflake auth options (service account / key pair / OAuth passthrough), not just one.",
+          "passed": true,
+          "evidence": "response.md 'Auth model' section discusses both model 1 (service account with key-pair auth) and model 2 (Snowflake External OAuth passthrough). README also covers both. source_client.py comments reference switching to OAuth passthrough using authenticator='oauth'."
+        },
+        {
+          "text": "Recommends Cloud Run (or equivalent managed HTTPS hosting) for the MCP server.",
+          "passed": true,
+          "evidence": "response.md: 'Cloud Run gives you HTTPS automatically; that's why it's the deploy target.' README has full 'Deploy to Cloud Run' section with `gcloud run deploy` command. Dockerfile is structured for Cloud Run."
+        },
+        {
+          "text": "Mentions including the offline_access scope so Gemini can refresh tokens.",
+          "passed": true,
+          "evidence": "response.md: 'you must include `offline_access` in scopes so refresh tokens are issued.' README: 'Scopes defined for your tools; include `offline_access`.' Also called out as a failure mode: 'Random 401s mid-session \u2192 missing `offline_access` scope, so no refresh token.'"
+        },
+        {
+          "text": "Specifies the exact Gemini OAuth redirect URI (https://vertexaisearch.cloud.google.com/oauth-redirect) needed when registering the OAuth client.",
+          "passed": true,
+          "evidence": "response.md: 'The IdP must have `https://vertexaisearch.cloud.google.com/oauth-redirect` registered as a redirect URI exactly'. README: 'OAuth app registered with redirect URI **exactly** `https://vertexaisearch.cloud.google.com/oauth-redirect` (no trailing slash).'"
+        },
+        {
+          "text": "Walks through registering the datastore in the Gemini Enterprise console (Custom MCP Server type, the fields to fill, the Reload custom actions step).",
+          "passed": true,
+          "evidence": "response.md 'Deployment flow' steps 5-7: 'Gemini Enterprise \u2192 Data stores \u2192 Create data store \u2192 Custom MCP Server. Fill in MCP URL ... your IdP auth/token URLs, the client ID/secret, and scopes (with `offline_access`). Click **Login** ... After creation: **Datastore \u2192 Actions \u2192 Reload custom actions.**' README 'Register the datastore in Gemini Enterprise' section covers same steps in detail."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 10,
+        "failed": 0,
+        "total": 10,
+        "time_seconds": 263.8,
+        "tokens": 41468,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Recommends a Discovery Engine ingestion connector (not an MCP server) because the content is static documents that need to be cited and ACL-enforced at query time.",
+          "passed": true,
+          "evidence": "response.md 'Why this path (and not an MCP server)' section walks the decision tree: 'HR policies are stable documents... A periodically refreshed snapshot is fine. (Ingestion.)' and concludes 'Three-for-three on ingestion.' TL;DR labels it 'Custom Connector \u2192 Discovery Engine datastore (ingestion path).'"
+        },
+        {
+          "text": "Identifies that an Identity Mapping Store is required because SAP user IDs do not match Google Workspace identities, and shows how to create one BEFORE the datastore (it cannot be added later).",
+          "passed": true,
+          "evidence": "response.md: 'Your statement \"SAP user IDs don't match Google emails\" is exactly the case the IMS exists to solve.' Setup order section: 'The IMS and acl_enabled are both immutable at datastore creation... 1. Create the IMS first. 2. Create the datastore second...' infra/create_datastore.py calls create_ims() then create_datastore(ims_name) in that order."
+        },
+        {
+          "text": "Sets acl_enabled=True at datastore creation time and explains that it cannot be added later.",
+          "passed": true,
+          "evidence": "infra/create_datastore.py line 64: 'acl_enabled=True,                              # immutable'. Module docstring: 'CRITICAL: acl_enabled=True and identity_mapping_store both can ONLY be set at datastore creation. If you forget either, you have to delete the datastore and re-create it...'"
+        },
+        {
+          "text": "Passes the identity_mapping_store reference into create_data_store using the full resource name format (projects/.../identityMappingStores/...).",
+          "passed": true,
+          "evidence": "infra/create_datastore.py create_ims() returns 'projects/{PROJECT_ID}/locations/{LOCATION}/identityMappingStores/{IMS_ID}'. create_data_store call passes identity_mapping_store=ims_name (line 65) which contains the full resource name."
+        },
+        {
+          "text": "Documents the asymmetry: external identities are imported WITHOUT the external_user:/external_group: prefix, but referenced WITH the prefix in document ACLs.",
+          "passed": true,
+          "evidence": "response.md: 'when you import mappings into the IMS, the external identity is bare (\"EMEA_HR_MANAGERS\"). When you reference that identity in a document\u2019s ACL, you prefix it (\"external_group:EMEA_HR_MANAGERS\").' identity_mapping.py docstring repeats this; the import uses external_identity=e['external'] (bare), while transform.py uses group_id=f'external_group:{group_id}' (prefixed)."
+        },
+        {
+          "text": "Uses stable document IDs derived from the SAP source primary key, not random UUIDs.",
+          "passed": true,
+          "evidence": "transform.py line 26: 'doc_id = f\"sf:dms:{policy.document_id}\"'. response.md: 'Every doc uses id = f\"sf:dms:{documentId}\". SF\u2019s documentId is the DMS primary key, so re-syncs upsert cleanly... Never use uuid4() here.'"
+        },
+        {
+          "text": "Handles PDF binary content via raw_bytes with mime_type=application/pdf, relying on Discovery Engine server-side extraction.",
+          "passed": true,
+          "evidence": "transform.py: content=discoveryengine.Document.Content(raw_bytes=policy.body_bytes, mime_type=policy.mime_type). response.md: 'PDF bytes go in as content.raw_bytes with mime_type=\"application/pdf\". Discovery Engine does the text extraction server-side.'"
+        },
+        {
+          "text": "Uses the google-cloud-discoveryengine Python SDK (DocumentServiceClient, DataStoreServiceClient, IdentityMappingStoreServiceClient).",
+          "passed": true,
+          "evidence": "connector.py imports 'from google.cloud import discoveryengine_v1' and uses discoveryengine.DocumentServiceClient(). infra/create_datastore.py uses DataStoreServiceClient and IdentityMappingStoreServiceClient. identity_mapping.py uses IdentityMappingStoreServiceClient via import_identity_mappings."
+        },
+        {
+          "text": "Organizes the connector code into the three-stage Fetch \u2192 Transform \u2192 Sync pipeline.",
+          "passed": true,
+          "evidence": "connector.py docstring: 'Orchestrates: Fetch (SuccessFactors OData) -> Transform (Document payload) -> Sync (JSONL on GCS -> Discovery Engine import_documents).' Code is split into source_fetcher.py (Fetch), transform.py (Transform), and connector.py orchestration with write_jsonl_to_gcs + import_from_gcs (Sync)."
+        },
+        {
+          "text": "Mentions scheduled sync (e.g., Cloud Scheduler + Cloud Run job) and the FULL vs. INCREMENTAL reconciliation distinction.",
+          "passed": true,
+          "evidence": "response.md architecture diagram: '[ Cloud Run Job: connector.py ]' and 'import_documents (FULL on first run, INCREMENTAL after)'. connector.py uses SYNC_MODE env var and discoveryengine.ImportDocumentsRequest.ReconciliationMode.FULL vs INCREMENTAL. Assumptions: 'Connector runs on Cloud Run Jobs with workload identity. Cloud Scheduler kicks it off.' Deletes section mentions 'weekly FULL reconciliation by setting SYNC_MODE=FULL on a separate Cloud Scheduler trigger.'"
+        }
+      ],
+      "notes": [
+        "SF entity that actually holds the policies (DMSDocument vs alternate)",
+        "SF category IDs for HR content (currently stubbed)",
+        "Whether Workday already provisions matching Google Groups",
+        "Custom Workday Worker field name holding SAP user id",
+        "Refresh cadence",
+        "SAML assertion builder is a NotImplementedError stub",
+        "Workday client calls are NotImplementedError stubs",
+        "Default-deny ACL behavior \u2014 recommends adding a tenant-wide fallback group or warning log"
+      ]
+    },
+    {
+      "eval_id": 2,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 10,
+        "failed": 0,
+        "total": 10,
+        "time_seconds": 201.9,
+        "tokens": 48699,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Picks the ingestion connector path (Fetch \u2192 Transform \u2192 Sync into Discovery Engine), not an MCP server.",
+          "passed": true,
+          "evidence": "response.md 'Path decision' section explicitly walks the decision tree and concludes '\u2192 Path B: Custom Connector \u2192 Discovery Engine datastore.' The architecture diagram shows 'fetch_articles \u2192 to_document \u2192 shard + write JSONL \u2192 import_documents(GcsSource, mode) \u2192 Discovery Engine datastore'. No MCP server is mentioned; the implementation is a Cloud Run Job pipeline (connector.py orchestrates fetch \u2192 transform \u2192 JSONL \u2192 import)."
+        },
+        {
+          "text": "Uses GCS JSONL import (GcsSource) rather than inline import for the sync, given 50k documents \u2014 explicitly or implicitly explains why inline doesn't scale.",
+          "passed": true,
+          "evidence": "response.md states 'GCS JSONL imports, not inline. Inline is incremental-only and caps at 100 docs/request \u2014 useless at 50k. GCS path supports both FULL and INCREMENTAL, and lets us shard.' connector.py uses `discoveryengine.GcsSource(input_uris=uris)` in the import_documents request and writes JSONL shards to GCS via write_jsonl_shards()."
+        },
+        {
+          "text": "Derives stable document IDs from the CMS article primary key, not random UUIDs.",
+          "passed": true,
+          "evidence": "transform.py line 41: `doc_id = f\"cms_article:{record['id']}\"`. response.md confirms: 'Stable document IDs derived from the CMS primary key: f\"cms_article:{record[\\'id\\']}\". Per SKILL.md \"Common pitfalls\", random UUIDs would create duplicates on every sync.' The uuid import in connector.py is only used for the run_id (GCS prefix), not document IDs."
+        },
+        {
+          "text": "Implements paginated reads from the REST API rather than assuming a single response.",
+          "passed": true,
+          "evidence": "source_fetcher.py implements cursor pagination: the `fetch_articles` generator loops `while True`, reads `next_page_token` from each response, and continues until token is None. It also honors `page_size` (default 500). It uses retry/backoff for 429/5xx as well."
+        },
+        {
+          "text": "Uses a watermark (e.g., updated_at) and INCREMENTAL reconciliation mode for hourly syncs, with a FULL first run.",
+          "passed": true,
+          "evidence": "connector.py reads/writes a watermark from `gs://{STAGING_BUCKET}/state/watermark.txt`. If no watermark exists, `mode = \"FULL\"`; otherwise `mode = \"INCREMENTAL\"`. Reconciliation mode is mapped to `ReconciliationMode.FULL` or `ReconciliationMode.INCREMENTAL` and used in ImportDocumentsRequest. The watermark tracks max(updated_at) across the fetched records and is advanced only on success."
+        },
+        {
+          "text": "Recommends a concrete scheduling mechanism (Cloud Scheduler \u2192 Cloud Run Job) for the hourly cadence.",
+          "passed": true,
+          "evidence": "response.md 'Bring-up sequence' step 6 deploys the connector as a Cloud Run Job, and step 8 schedules it with Cloud Scheduler: `gcloud scheduler jobs create http cms-connector-hourly --schedule \"0 * * * *\" --uri \"https://<region>-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT_ID/jobs/cms-connector:run\" ...`. Architecture section also states 'Runs on Cloud Run Jobs, triggered by Cloud Scheduler.'"
+        },
+        {
+          "text": "Makes the ACL strategy explicit \u2014 either idp_wide=True (if articles are org-wide readable) or per-document readers \u2014 not silently skipping ACL configuration.",
+          "passed": true,
+          "evidence": "transform.py builds explicit readers: `if record.get(\"is_public\"): readers = [{\"idp_wide\": True}]` else iterates `reader_users` (`external_user:` prefix) and `reader_groups` (`external_group:` prefix). It even adds a default-deny sentinel principal when no readers are provided. response.md Assumptions section explicitly discusses both per-document ACL and idp_wide=True alternatives. AclInfo is set on every Document via `discoveryengine.Document.AclInfo`."
+        },
+        {
+          "text": "Uses the google-cloud-discoveryengine Python SDK.",
+          "passed": true,
+          "evidence": "All Python files import `from google.cloud import discoveryengine_v1 as discoveryengine`. pyproject.toml lists `google-cloud-discoveryengine>=0.13.0` as a dependency. SDK clients used: `DocumentServiceClient`, `IdentityMappingStoreServiceClient`, `DataStoreServiceClient`, plus types like `ImportDocumentsRequest`, `GcsSource`, `Document`, `Principal`, `AclInfo`."
+        },
+        {
+          "text": "Sets acl_enabled=True at datastore creation time.",
+          "passed": true,
+          "evidence": "infra/create_datastore.py line 51: `acl_enabled=True,  # MUST be set at creation; cannot be added later.` inside `discoveryengine.DataStore(...)` of `CreateDataStoreRequest`. response.md also calls this out: '`acl_enabled=True` set at datastore creation (`infra/create_datastore.py`). Cannot be added later \u2014 forgetting forces a delete + full re-ingest.'"
+        },
+        {
+          "text": "Addresses how deletes are handled (PurgeDocuments, periodic FULL re-sync, or explicit acknowledgment that the source is append-only).",
+          "passed": true,
+          "evidence": "response.md has a dedicated 'Handling deletes (not in the hourly run)' section that proposes two concrete options: (1) Weekly FULL re-sync via `FORCE_FULL=true` Scheduler job; (2) `PurgeDocuments` on a delete feed with example call `client.purge_documents(filter='id: ANY(\"cms_article:123\",...)', force=True)`. It also notes INCREMENTAL never removes documents and recommends weekly FULL for 50k articles."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 8,
+        "failed": 0,
+        "total": 8,
+        "time_seconds": 227.2,
+        "tokens": 38930,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Identifies that BOTH paths are needed for this use case \u2014 an ingestion connector for the knowledge corpus and an MCP server for the write (create ticket) action.",
+          "passed": true,
+          "evidence": "Response intro states: 'because you want both read (search knowledge articles with citations) and write (create tickets), you need both Gemini Enterprise extension points, not one. Specifically: Custom Connector \u2192 Discovery Engine datastore ingests your KB articles ... Custom MCP Server exposes a create_incident tool'. Architecture diagram and the two sections 'Path A: Ingestion connector for KB articles' and 'Path B: MCP server for live writes' make the dual-path approach explicit."
+        },
+        {
+          "text": "Explains that ingestion connectors are read-only into the datastore and cannot write back to the source, which is why a write action requires an MCP server.",
+          "passed": true,
+          "evidence": "Decision tree explicitly states: 'Write back to the source? \u2014 Yes (create tickets) \u2192 MCP.' Also: 'creating a ticket is a write, which means MCP regardless.' The architecture explicitly separates ingestion (FULL/INCREMENTAL import to datastore) from MCP (live tools to ServiceNow), establishing the read-only-into-datastore vs. write-back distinction."
+        },
+        {
+          "text": "Defines a create_ticket (or similar) MCP tool with a narrow, verb-led signature \u2014 not a generic write_anything tool.",
+          "passed": true,
+          "evidence": "server.py defines create_incident(short_description, description, urgency, caller_email) as a narrow, verb-led tool, alongside get_incident(number) and update_incident(number, work_notes, state). Tools are scoped to specific incident operations, not generic write/CRUD. Response also notes 'Tool descriptions are the routing signal' and emphasizes verb-led naming."
+        },
+        {
+          "text": "Uses the ingestion connector pattern for the knowledge articles corpus so answers can be grounded with citations.",
+          "passed": true,
+          "evidence": "Response: 'Custom Connector \u2192 Discovery Engine datastore ingests your KB articles on a schedule so Gemini can ground answers in them with citations and ACL enforcement.' connector.py implements the canonical fetch\u2192transform\u2192GCS JSONL\u2192import pattern, and transform.py builds discoveryengine.Document objects with source_url in struct_data for citations."
+        },
+        {
+          "text": "Addresses how ACLs map for the KB corpus \u2014 readers per article or idp_wide where appropriate.",
+          "passed": true,
+          "evidence": "ACL handling appears in both transform.py and response. transform.py constructs readers from 'can_read_user_criteria' as external_group principals, with fallback to idp_wide: True. Response notes: 'external_group:<criteria_sys_id> for criteria-based access ... idp_wide: True for the special public KB case' and warns 'default-deny is safer than default-open'. Also covers IMS asymmetry: bare sys_id when importing vs prefixed when referencing in ACL."
+        },
+        {
+          "text": "Addresses authentication for both paths \u2014 OAuth for the MCP server, and a service account or fetch-time credentials for the ingestion connector.",
+          "passed": true,
+          "evidence": "MCP path: auth.py validates IdP-issued bearer tokens via OAuth introspection; deploy step shows OAUTH_INTROSPECT_URL, OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET env vars and registering redirect URI. Ingestion path: source_fetcher.py uses SNOW_USER/SNOW_PASSWORD (with the comment 'Prefer OAuth client credentials in production'), and response mentions the service account requirement in the one-time setup section."
+        },
+        {
+          "text": "Specifies StreamableHTTP transport for the MCP server (not SSE).",
+          "passed": true,
+          "evidence": "server.py line 79: 'mcp.run(transport=\"streamable-http\", host=\"0.0.0.0\", port=8080, path=\"/mcp\")' with comment 'StreamableHTTP is the ONLY transport Gemini Enterprise accepts. Do NOT switch to SSE'. Response 'Things that will bite you' reiterates: 'StreamableHTTP only. If you're starting from an MCP example that uses SSE, switch transports first or tools/list will return zero.'"
+        },
+        {
+          "text": "Uses stable document IDs from the ServiceNow KB article primary key in the ingestion connector.",
+          "passed": true,
+          "evidence": "transform.py line 14: `doc_id = f\"snow_kb:{article['sys_id']}\"`. Response says: 'Stable ID: f\"snow_kb:{article['sys_id']}\" \u2014 sys_id is ServiceNow's primary key, won't change on edits.' Pitfalls section adds: 'Don't use UUIDs as document IDs. snow_kb:{sys_id} is stable across re-runs; uuid4() makes duplicates on every sync.'"
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 0,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.69,
+        "passed": 9,
+        "failed": 4,
+        "total": 13,
+        "time_seconds": 256.6,
+        "tokens": 30327,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Recommends Custom MCP Server as the primary path for the Snowflake warehouse use case (not a Discovery Engine ingestion connector replicating warehouse data).",
+          "passed": true,
+          "evidence": "response.md TL;DR: 'Stand up a Snowflake-managed MCP server in front of a Cortex Analyst semantic view, then register it in Gemini Enterprise as a *Custom MCP Server* data store with user-delegated OAuth.' The shape comparison table explicitly marks 'Custom MCP server data store' as 'Yes - this is the one.' and the document connector path as 'No.'"
+        },
+        {
+          "text": "Explains why ingesting a warehouse into Discovery Engine is the wrong pattern (live query semantics, scale, cost of replication).",
+          "passed": true,
+          "evidence": "response.md line 45: 'Stale snapshots, loses row-level security, can't answer aggregate questions (\"revenue by region last quarter\") because each row is an island.' Also TL;DR: 'without copying a single row out of Snowflake.' README.md: 'Sales data in a warehouse is *structured and live*. Replicating it into a Discovery Engine document store... gives you stale, denormalized snapshots and loses row-level security.'"
+        },
+        {
+          "text": "Specifies that the MCP server must use StreamableHTTP transport (NOT SSE, which Gemini Enterprise does not support).",
+          "passed": true,
+          "evidence": "data_store_config.yaml line 17: 'transport: \"STREAMABLE_HTTP\" # SSE is NOT supported'. response.md line 157: 'Transport: **must be `STREAMABLE_HTTP`** - the old SSE transport is not supported by this connector.' Also in register_data_store.sh as 'STREAMABLE_HTTP'."
+        },
+        {
+          "text": "Notes that the MCP endpoint must be HTTPS and conventionally ends in /mcp.",
+          "passed": true,
+          "evidence": "data_store_config.yaml line 15-16: '# From `DESC MCP SERVER GE_SALES_MCP;` -- always ends in /mcp' followed by 'url: \"https://<account-locator>.snowflakecomputing.com/api/v2/databases/SALES_DB/schemas/ANALYTICS/mcp-servers/GE_SALES_MCP/mcp\"' (HTTPS, ending in /mcp)."
+        },
+        {
+          "text": "Defines a tool surface that includes a SELECT-style run_query (or equivalent) tool, ideally with descriptive name and JSON Schema inputs.",
+          "passed": true,
+          "evidence": "04_create_mcp_server.sql defines two tools: 'sales_analyst' (CORTEX_ANALYST_MESSAGE) and 'run_sql' (SQL_EXEC) with descriptive names, titles, and descriptions. The run_sql tool description: 'Execute a SELECT statement against SALES_DB.ANALYTICS... Writes are blocked.' No explicit JSON Schema (the assertion marks this as 'ideally')."
+        },
+        {
+          "text": "Bakes in a guardrail that rejects non-SELECT statements (DDL/DML), rather than trusting string matching alone.",
+          "passed": true,
+          "evidence": "Structural guardrails: 01_create_role_and_warehouse.sql grants only SELECT (no INSERT/UPDATE/DELETE/CREATE) to GE_AGENT_ROLE. response.md production checklist: 'GE_AGENT_ROLE has **no** writes anywhere. The optional run_sql tool is wired to a read-only context.' This is privilege-based enforcement, stronger than string matching. The run_sql tool description states 'Writes are blocked.'"
+        },
+        {
+          "text": "Includes a row cap / LIMIT injection so a single tool call cannot return arbitrarily large result sets.",
+          "passed": false,
+          "evidence": "No row cap, LIMIT injection, or max-rows mechanism is mentioned anywhere in response.md, README.md, the SQL files, or the YAML config. The only 'cap' reference is to a 'hard credit cap' on the resource monitor, which limits credits, not rows. No mechanism prevents a SELECT * FROM huge_table from returning millions of rows."
+        },
+        {
+          "text": "Mentions a Snowflake statement timeout (e.g., STATEMENT_TIMEOUT_IN_SECONDS) to prevent runaway queries from burning warehouse credits.",
+          "passed": true,
+          "evidence": "response.md line 201-203 production checklist: 'Warehouse is XS, auto-suspend 60s, **statement timeout set** (`ALTER WAREHOUSE ... SET STATEMENT_TIMEOUT_IN_SECONDS = 60`) so a runaway agent query can't burn credits.'"
+        },
+        {
+          "text": "Discusses Snowflake auth options (service account / key pair / OAuth passthrough), not just one.",
+          "passed": false,
+          "evidence": "The response focuses on a single auth pattern: External OAuth / OAuth passthrough with user-delegated JWTs. Service accounts are only mentioned as an anti-pattern ('No service-account-with-superuser-grant anti-pattern' on line 95). Key pair authentication is not discussed at all. No comparison of multiple auth options is provided."
+        },
+        {
+          "text": "Recommends Cloud Run (or equivalent managed HTTPS hosting) for the MCP server.",
+          "passed": false,
+          "evidence": "Cloud Run is only mentioned as a fallback OpenAPI/agent-action option (lines 47 and 229), NOT as the deployment target for the MCP server. The recommended architecture uses Snowflake's managed MCP server running inside the Snowflake account itself (response.md line 51-55: 'Snowflake now ships a **managed MCP server** as a first-class object... It runs inside your Snowflake account, has no infrastructure for you to operate'). While defensible technically (Snowflake-hosted MCP is real), it does not satisfy this assertion."
+        },
+        {
+          "text": "Mentions including the offline_access scope so Gemini can refresh tokens.",
+          "passed": true,
+          "evidence": "response.md line 173: 'Expose a scope like `session:role-any` and include `offline_access`.' data_store_config.yaml line 39: 'scopes: \"offline_access api://<gemini-enterprise-app-id>/session:role-any\"'. register_data_store.sh defaults: 'SCOPES=\"${SCOPES:-offline_access}\"'."
+        },
+        {
+          "text": "Specifies the exact Gemini OAuth redirect URI (https://vertexaisearch.cloud.google.com/oauth-redirect) needed when registering the OAuth client.",
+          "passed": true,
+          "evidence": "response.md line 171-172: 'Redirect URI must be exactly `https://vertexaisearch.cloud.google.com/oauth-redirect`.' Also in README.md line 35 and data_store_config.yaml line 33."
+        },
+        {
+          "text": "Walks through registering the datastore in the Gemini Enterprise console (Custom MCP Server type, the fields to fill, the Reload custom actions step).",
+          "passed": false,
+          "evidence": "Two of three components are present: console path noted ('Data stores -> Create -> Custom MCP Server (Preview)' on response.md line 184 and data_store_config.yaml lines 6-9), and fields to fill are enumerated (data_store_config.yaml lists display_name, location, mcp URL, transport, oauth fields, scopes, enabled tools). However, the 'Reload custom actions' step explicitly called out in the assertion is NOT mentioned anywhere (grep for 'reload' returned no matches in any output file). The response mentions enabling the tool in the Actions tab (step 7) but not the Reload step."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.9,
+        "passed": 9,
+        "failed": 1,
+        "total": 10,
+        "time_seconds": 391.3,
+        "tokens": 59584,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Recommends a Discovery Engine ingestion connector (not an MCP server) because the content is static documents that need to be cited and ACL-enforced at query time.",
+          "passed": true,
+          "evidence": "The entire response is structured around a Discovery Engine ingestion connector. Architecture diagram shows 'Discovery Engine Data Store (acl_enabled)' as the destination; setup_data_store.py uses DataStoreServiceClient with acl_enabled=True; connector.py uses DocumentServiceClient.import_documents. No mention of MCP. Title: 'Building a Gemini Enterprise Custom Connector for SAP SuccessFactors HR Policy PDFs'."
+        },
+        {
+          "text": "Identifies that an Identity Mapping Store is required because SAP user IDs do not match Google Workspace identities, and shows how to create one BEFORE the datastore (it cannot be added later).",
+          "passed": true,
+          "evidence": "Response explicitly states under Step 2: 'You must do this **before** creating the data store \u2014 the binding is set at creation time and is immutable.' Common pitfalls section: 'Setting the IMS after data store creation. You can't. Delete and recreate the data store if you skipped it on day 1.' setup_data_store.py implements get_or_create_ims() before get_or_create_data_store(), passing ims_name into the DataStore creation."
+        },
+        {
+          "text": "Sets acl_enabled=True at datastore creation time and explains that it cannot be added later.",
+          "passed": true,
+          "evidence": "setup_data_store.py line 45: 'acl_enabled=True' is set inside the DataStore() at creation. The introductory text emphasizes ACL enforcement at query time, and the verification checklist asserts 'aclEnabled: true'. While the response does not state explicitly 'acl_enabled cannot be added later' in those exact words for that specific flag (it does say so for the IMS binding which is closely tied), the assertion's spirit \u2014 that it's set at creation \u2014 is satisfied."
+        },
+        {
+          "text": "Passes the identity_mapping_store reference into create_data_store using the full resource name format (projects/.../identityMappingStores/...).",
+          "passed": true,
+          "evidence": "setup_data_store.py builds the name as f'projects/{PROJECT_ID}/locations/{LOCATION}/identityMappingStores/{IMS_ID}' and returns it from get_or_create_ims(); then passes it into DataStore(identity_mapping_store=ims_name) in get_or_create_data_store. The response also documents: 'identity_mapping_store=projects/.../identityMappingStores/successfactors-identities'."
+        },
+        {
+          "text": "Documents the asymmetry: external identities are imported WITHOUT the external_user:/external_group: prefix, but referenced WITH the prefix in document ACLs.",
+          "passed": true,
+          "evidence": "Step 6 says: 'we reference these as externalEntityId: \"external_group:HR_ADMIN_GLOBAL\" (note the external_group: prefix for groups in the doc ACL \u2014 but not in the mapping store entries).' Common pitfalls: 'Forgetting the external_group: prefix. It goes in the document ACL principal (externalEntityId: \"external_group:HR_ADMIN_GLOBAL\"), but not in the identity-mapping-store entry (externalIdentity: \"HR_ADMIN_GLOBAL\")'. Verified in code: identity_sync.py uses external_identity=str(sap_uid) and external_identity=group_id (no prefix); connector.py _resolve_acl uses f'external_group:{group_id}' (with prefix)."
+        },
+        {
+          "text": "Uses stable document IDs derived from the SAP source primary key, not random UUIDs.",
+          "passed": true,
+          "evidence": "connector.py: 'doc_id = policy[\"externalCode\"]' \u2014 uses the SAP MDF externalCode as the doc ID. POLICY_SELECT comment says '\"externalCode\", # we use this as the stable doc ID'. The id is passed into de.Document(id=doc_id, ...). No UUID generation is used for doc IDs."
+        },
+        {
+          "text": "Handles PDF binary content via raw_bytes with mime_type=application/pdf, relying on Discovery Engine server-side extraction.",
+          "passed": false,
+          "evidence": "The connector does NOT use raw_bytes. It stages the PDF in GCS and references it via content.uri: de.Document.Content(mime_type='application/pdf', uri=gcs_uri). While this is also a valid Discovery Engine pattern and uses the correct mime_type, the assertion specifically calls for raw_bytes inline binary handling. The response chose a different valid approach (GCS staging + uri) instead. Server-side extraction is implied by setting content_config=CONTENT_REQUIRED and mime_type=application/pdf, but raw_bytes is not used."
+        },
+        {
+          "text": "Uses the google-cloud-discoveryengine Python SDK (DocumentServiceClient, DataStoreServiceClient, IdentityMappingStoreServiceClient).",
+          "passed": true,
+          "evidence": "requirements.txt: 'google-cloud-discoveryengine>=0.13.0'. setup_data_store.py uses de.IdentityMappingStoreServiceClient() and de.DataStoreServiceClient(). connector.py uses de.DocumentServiceClient(). identity_sync.py uses de.IdentityMappingStoreServiceClient(). All three named clients are present."
+        },
+        {
+          "text": "Organizes the connector code into the three-stage Fetch -> Transform -> Sync pipeline.",
+          "passed": true,
+          "evidence": "Architecture diagram in response shows '- fetch policies + ACLs / - decode base64 PDF / - upload PDF -> GCS / - emit metadata.jsonl / - emit identity mappings'. connector.py main() flows: _build_documents (fetch+transform per policy via iter_entity, fetch_attachment_bytes, _resolve_acl), _stage_metadata_jsonl (transform/stage), _import_documents (sync to Discovery Engine). Section headers in the response: 'Fetch the policies and their ACLs', 'Stage PDFs + metadata to GCS, then import'. The three stages are clearly present though the response doesn't explicitly label them 'Fetch / Transform / Sync'."
+        },
+        {
+          "text": "Mentions scheduled sync (e.g., Cloud Scheduler + Cloud Run job) and the FULL vs. INCREMENTAL reconciliation distinction.",
+          "passed": true,
+          "evidence": "Step 7 'Schedule': 'Run the connector as a Cloud Run Job on a Cloud Scheduler cron (e.g., every 30 min).' cloud_run_job.yaml manifest is provided, with gcloud scheduler jobs create example. FULL vs INCREMENTAL is discussed in connector.py comment ('switch to INCREMENTAL and pass `since` into _build_documents') and in Common pitfalls: 'Reconciliation mode. Use FULL if you always pull the entire set; switch to INCREMENTAL only once you have a robust delete-detection story'. import call uses reconciliation_mode=de.ImportDocumentsRequest.ReconciliationMode.FULL."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.7,
+        "passed": 7,
+        "failed": 3,
+        "total": 10,
+        "time_seconds": 157.7,
+        "tokens": 25800,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Picks the ingestion connector path (Fetch \u2192 Transform \u2192 Sync into Discovery Engine), not an MCP server.",
+          "passed": true,
+          "evidence": "response.md Architecture section shows 'Cloud Scheduler \u2192 Cloud Run Job ... GET /articles ... transform + batch ... Discovery Engine importDocuments'. File layout includes connector/cms_client.py (extract), connector/transform.py, connector/gemini_sink.py (load). No MCP server is mentioned anywhere."
+        },
+        {
+          "text": "Uses GCS JSONL import (GcsSource) rather than inline import for the sync, given 50k documents \u2014 explicitly or implicitly explains why inline doesn't scale.",
+          "passed": false,
+          "evidence": "The implementation in connector/gemini_sink.py explicitly uses InlineSource: 'inline_source=discoveryengine.ImportDocumentsRequest.InlineSource(documents=de_docs)'. response.md Assumption 4 states 'Inline importDocuments calls (batches of 100) are sufficient; we don't need a GCS staging pipeline.' GCS staging is only mentioned as a recommendation for the initial backfill in the Scaling notes, but no GcsSource code is implemented. The assertion requires using GCS JSONL for the sync; the scaffold instead defaults to inline for both full and incremental runs."
+        },
+        {
+          "text": "Derives stable document IDs from the CMS article primary key, not random UUIDs.",
+          "passed": true,
+          "evidence": "connector/transform.py line 45: 'article_id = str(article[\"id\"])' and the returned doc uses 'id': article_id. connector/gemini_sink.py constructs discoveryengine.Document(id=d[\"id\"], ...) with auto_generate_ids=False and id_field=\"id\". No UUIDs are generated."
+        },
+        {
+          "text": "Implements paginated reads from the REST API rather than assuming a single response.",
+          "passed": true,
+          "evidence": "connector/cms_client.py iter_articles() uses a while-loop driven by 'next_page' from each response with page/page_size params; it yields items per page until next_page is null."
+        },
+        {
+          "text": "Uses a watermark (e.g., updated_at) and INCREMENTAL reconciliation mode for hourly syncs, with a FULL first run.",
+          "passed": true,
+          "evidence": "connector/state.py read_watermark/write_watermark persist max(updated_at). connector/gemini_sink.py uses 'reconciliation_mode=discoveryengine.ImportDocumentsRequest.ReconciliationMode.INCREMENTAL'. connector/main.py sets 'watermark = None if CONFIG.run_mode == \"full\" else read_watermark()' supporting a full first run via RUN_MODE=full."
+        },
+        {
+          "text": "Recommends a concrete scheduling mechanism (Cloud Scheduler \u2192 Cloud Run Job) for the hourly cadence.",
+          "passed": true,
+          "evidence": "deploy/cloud_run_job.sh creates a Cloud Run Job and registers a 'gcloud scheduler jobs create http' with schedule '0 * * * *'. response.md Assumption 5: 'Cloud Run Job triggered by Cloud Scheduler at 0 * * * * UTC'."
+        },
+        {
+          "text": "Makes the ACL strategy explicit \u2014 either idp_wide=True (if articles are org-wide readable) or per-document readers \u2014 not silently skipping ACL configuration.",
+          "passed": false,
+          "evidence": "ACL handling is only mentioned conditionally in the 'Open items / things to confirm before production' section ('If articles have per-user ACLs, populate aclInfo on the Document'). No explicit choice between idp_wide=True or per-document readers is made; no aclInfo is populated in transform.py; no idp_wide flag is configured anywhere. The scaffold effectively skips ACL configuration."
+        },
+        {
+          "text": "Uses the google-cloud-discoveryengine Python SDK.",
+          "passed": true,
+          "evidence": "requirements.txt: 'google-cloud-discoveryengine>=0.13.0'. connector/gemini_sink.py imports 'from google.cloud import discoveryengine_v1 as discoveryengine' and uses DocumentServiceClient, ImportDocumentsRequest, Document, etc."
+        },
+        {
+          "text": "Sets acl_enabled=True at datastore creation time.",
+          "passed": false,
+          "evidence": "response.md Assumption 3 states the datastore is 'pre-created' and 'configured for unstructured data with metadata' but the scaffold never creates the datastore. There is no DataStoreServiceClient call, no 'acl_enabled=True' setting anywhere in the code or deploy scripts. No mention of acl_enabled in the response."
+        },
+        {
+          "text": "Addresses how deletes are handled (PurgeDocuments, periodic FULL re-sync, or explicit acknowledgment that the source is append-only).",
+          "passed": true,
+          "evidence": "connector/transform.py routes 'status == \"deleted\"' to a delete sentinel; connector/gemini_sink.py GeminiSink.delete_ids() calls self._client.delete_document() per id. response.md Assumption 6 and Open items #1 explicitly call out tombstones and a weekly reconciliation alternative for hard deletes ('add a weekly reconciliation that lists all current CMS IDs vs. listDocuments() and deletes the difference')."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.875,
+        "passed": 7,
+        "failed": 1,
+        "total": 8,
+        "time_seconds": 221.0,
+        "tokens": 28922,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Identifies that BOTH paths are needed for this use case \u2014 an ingestion connector for the knowledge corpus and an MCP server for the write (create ticket) action.",
+          "passed": true,
+          "evidence": "response.md TL;DR table explicitly splits the problem into 'Read knowledge articles' (custom data connector ingesting into Discovery Engine) and 'Create / update tickets' (custom MCP server or custom ADK agent). Architecture diagram labels them READ PATH and WRITE PATH and notes 'The two paths are independent \u2014 that's the key insight.' Part 1 covers the ingestion connector and Part 2 covers the MCP server (Option A) write action."
+        },
+        {
+          "text": "Explains that ingestion connectors are read-only into the datastore and cannot write back to the source, which is why a write action requires an MCP server.",
+          "passed": false,
+          "evidence": "While the response separates read and write paths and notes that 'The native ServiceNow actions feature is bound to the native connector \u2014 it won't work for your fork,' it does not explicitly state that ingestion connectors are read-only into the datastore and cannot write back to the source. The justification given for needing a custom MCP server is that native actions are tied to the native connector, not that ingestion is inherently one-way. The conceptual constraint that ingestion only flows source -> datastore is implied by the architecture diagram but not articulated."
+        },
+        {
+          "text": "Defines a create_ticket (or similar) MCP tool with a narrow, verb-led signature \u2014 not a generic write_anything tool.",
+          "passed": true,
+          "evidence": "mcp_server.py defines @mcp.tool() create_incident(short_description, description, caller_email, urgency, category, assignment_group) \u2014 a narrow, verb-led signature with explicit incident fields. Additional tools update_incident(sys_id, fields) and get_incident(number) are also narrowly scoped. No generic write_anything tool."
+        },
+        {
+          "text": "Uses the ingestion connector pattern for the knowledge articles corpus so answers can be grounded with citations.",
+          "passed": true,
+          "evidence": "Part 1 of response.md describes a 'custom data connector that ingests articles into a Discovery Engine data store' and connector_ingest.py implements fetch_published_articles -> to_discovery_document -> import_documents using discoveryengine_v1.DocumentServiceClient with reconciliation_mode=INCREMENTAL. Response states 'citations include the uri you put in jsonData, so users can click back to your fork's KB view.' Document jsonData includes a `url` field for citation back to the article."
+        },
+        {
+          "text": "Addresses how ACLs map for the KB corpus \u2014 readers per article or idp_wide where appropriate.",
+          "passed": true,
+          "evidence": "response.md Document shape shows aclInfo.readers with principals and idpWide field. Key choices section: 'if articles are role-restricted in your fork, map those roles to Google groups (or external groups via an Identity Mapping Store). If everything is org-wide, set idpWide: true.' connector_ingest.py _build_acl_for() function explicitly handles both cases: returns idp_wide=True for public articles or builds per-role principals with external_group: prefix for restricted ones."
+        },
+        {
+          "text": "Addresses authentication for both paths \u2014 OAuth for the MCP server, and a service account or fetch-time credentials for the ingestion connector.",
+          "passed": true,
+          "evidence": "MCP path: response.md says 'Configure OAuth 2.0 for Gemini Enterprise -> your MCP server (redirect URL https://vertexaisearch.cloud.google.com/oauth-redirect).' Ingestion path: connector_ingest.py uses SN_USER/SN_PASS basic auth or SN_BEARER OAuth bearer fetched from env; Auth section notes 'Service account / API credentials for your fork belong in Secret Manager, mounted into the Cloud Run / Agent Engine env \u2014 never inline.' The MCP server / ADK tool 'runs as a service identity by default.'"
+        },
+        {
+          "text": "Specifies StreamableHTTP transport for the MCP server (not SSE).",
+          "passed": true,
+          "evidence": "response.md Part 2 Option A: 'StreamableHTTP transport \u2014 SSE is not supported.' Limitations section: 'MCP transport: StreamableHTTP only. SSE servers will not work.' mcp_server.py calls mcp.run(transport='streamable-http', host='0.0.0.0', port=...) with a comment 'StreamableHTTP is required by Gemini Enterprise custom MCP data stores.'"
+        },
+        {
+          "text": "Uses stable document IDs from the ServiceNow KB article primary key in the ingestion connector.",
+          "passed": true,
+          "evidence": "response.md Document shape uses id 'kb_KB0001234' and notes 'Stable IDs (e.g. kb_<sys_id>) so re-runs upsert rather than duplicate.' connector_ingest.py to_discovery_document() sets id=f'kb_{sys_id}' where sys_id is the article's primary key from the Table API, and import_documents passes id_field='id'."
+        }
+      ],
+      "notes": [
+        "ADK @tool decorator import path in adk_agent.py may not match the actual google.adk.tools API \u2014 agents typically pass plain functions to Agent(tools=[...]).",
+        "Discovery Engine AclInfo / Principal class paths in connector_ingest.py should be confirmed against the actual discoveryengine_v1 proto."
+      ]
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {
+        "mean": 1.0,
+        "stddev": 0.0,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 222.275,
+        "stddev": 30.7876,
+        "min": 196.2,
+        "max": 263.8
+      },
+      "tokens": {
+        "mean": 39884.0,
+        "stddev": 7535.0608,
+        "min": 30439,
+        "max": 48699
+      }
+    },
+    "without_skill": {
+      "pass_rate": {
+        "mean": 0.7913,
+        "stddev": 0.1117,
+        "min": 0.69,
+        "max": 0.9
+      },
+      "time_seconds": {
+        "mean": 256.65,
+        "stddev": 98.6452,
+        "min": 157.7,
+        "max": 391.3
+      },
+      "tokens": {
+        "mean": 36158.25,
+        "stddev": 15731.3477,
+        "min": 25800,
+        "max": 59584
+      }
+    },
+    "delta": {
+      "pass_rate": "+0.21",
+      "time_seconds": "-34.4",
+      "tokens": "+3726"
+    }
+  },
+  "notes": [
+    "With-skill is perfectly consistent (0% stddev on pass rate) vs. 11% stddev on baseline — the skill removes the variance, not just the misses.",
+    "Without-skill failures cluster on operational gotchas that aren't load-bearing in any single doc page: eval-2 baseline used inline import for a 50k-doc hourly job (no FULL reconciliation possible), didn't set acl_enabled=True at datastore creation, and left ACL strategy as an open item. These are the kinds of bugs that only surface in production.",
+    "Eval-0 baseline chose Snowflake-managed MCP server + Cortex Analyst — arguably a stronger architecture than the with-skill answer in some shops, but it cost it three assertions that assumed Cloud Run hosting. The 'cloud_run_deployment' assertion may be over-specified; consider broadening to 'managed HTTPS hosting'.",
+    "Baseline does well on widely-documented patterns (StreamableHTTP transport, the exact OAuth redirect URI) — these are findable with web search. Skill outperforms on combinations of patterns and the specific failure modes (IMS prefix asymmetry, acl_enabled-at-creation immutability, LIMIT injection in run_query).",
+    "Time is 13% faster with skill (222s vs 257s) and far less variable (31s stddev vs 99s stddev). Token usage is slightly higher with skill (+10%) — the skill is making the agent do more rigorous scaffolding, not skipping work.",
+    "Several with-skill graders flagged eval-design concerns: assertions that check for topic mentions rather than verifying the code does the right thing. Worth tightening in iteration 2 if we run one — e.g., 'GCS JSONL not inline' could verify GcsSource is actually called in code, not just that JSONL is mentioned in prose."
+  ]
+}

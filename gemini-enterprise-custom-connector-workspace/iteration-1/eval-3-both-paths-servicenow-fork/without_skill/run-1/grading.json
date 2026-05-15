@@ -1,0 +1,124 @@
+{
+  "expectations": [
+    {
+      "text": "Identifies that BOTH paths are needed for this use case — an ingestion connector for the knowledge corpus and an MCP server for the write (create ticket) action.",
+      "passed": true,
+      "evidence": "response.md TL;DR table explicitly splits the problem into 'Read knowledge articles' (custom data connector ingesting into Discovery Engine) and 'Create / update tickets' (custom MCP server or custom ADK agent). Architecture diagram labels them READ PATH and WRITE PATH and notes 'The two paths are independent — that's the key insight.' Part 1 covers the ingestion connector and Part 2 covers the MCP server (Option A) write action."
+    },
+    {
+      "text": "Explains that ingestion connectors are read-only into the datastore and cannot write back to the source, which is why a write action requires an MCP server.",
+      "passed": false,
+      "evidence": "While the response separates read and write paths and notes that 'The native ServiceNow actions feature is bound to the native connector — it won't work for your fork,' it does not explicitly state that ingestion connectors are read-only into the datastore and cannot write back to the source. The justification given for needing a custom MCP server is that native actions are tied to the native connector, not that ingestion is inherently one-way. The conceptual constraint that ingestion only flows source -> datastore is implied by the architecture diagram but not articulated."
+    },
+    {
+      "text": "Defines a create_ticket (or similar) MCP tool with a narrow, verb-led signature — not a generic write_anything tool.",
+      "passed": true,
+      "evidence": "mcp_server.py defines @mcp.tool() create_incident(short_description, description, caller_email, urgency, category, assignment_group) — a narrow, verb-led signature with explicit incident fields. Additional tools update_incident(sys_id, fields) and get_incident(number) are also narrowly scoped. No generic write_anything tool."
+    },
+    {
+      "text": "Uses the ingestion connector pattern for the knowledge articles corpus so answers can be grounded with citations.",
+      "passed": true,
+      "evidence": "Part 1 of response.md describes a 'custom data connector that ingests articles into a Discovery Engine data store' and connector_ingest.py implements fetch_published_articles -> to_discovery_document -> import_documents using discoveryengine_v1.DocumentServiceClient with reconciliation_mode=INCREMENTAL. Response states 'citations include the uri you put in jsonData, so users can click back to your fork's KB view.' Document jsonData includes a `url` field for citation back to the article."
+    },
+    {
+      "text": "Addresses how ACLs map for the KB corpus — readers per article or idp_wide where appropriate.",
+      "passed": true,
+      "evidence": "response.md Document shape shows aclInfo.readers with principals and idpWide field. Key choices section: 'if articles are role-restricted in your fork, map those roles to Google groups (or external groups via an Identity Mapping Store). If everything is org-wide, set idpWide: true.' connector_ingest.py _build_acl_for() function explicitly handles both cases: returns idp_wide=True for public articles or builds per-role principals with external_group: prefix for restricted ones."
+    },
+    {
+      "text": "Addresses authentication for both paths — OAuth for the MCP server, and a service account or fetch-time credentials for the ingestion connector.",
+      "passed": true,
+      "evidence": "MCP path: response.md says 'Configure OAuth 2.0 for Gemini Enterprise -> your MCP server (redirect URL https://vertexaisearch.cloud.google.com/oauth-redirect).' Ingestion path: connector_ingest.py uses SN_USER/SN_PASS basic auth or SN_BEARER OAuth bearer fetched from env; Auth section notes 'Service account / API credentials for your fork belong in Secret Manager, mounted into the Cloud Run / Agent Engine env — never inline.' The MCP server / ADK tool 'runs as a service identity by default.'"
+    },
+    {
+      "text": "Specifies StreamableHTTP transport for the MCP server (not SSE).",
+      "passed": true,
+      "evidence": "response.md Part 2 Option A: 'StreamableHTTP transport — SSE is not supported.' Limitations section: 'MCP transport: StreamableHTTP only. SSE servers will not work.' mcp_server.py calls mcp.run(transport='streamable-http', host='0.0.0.0', port=...) with a comment 'StreamableHTTP is required by Gemini Enterprise custom MCP data stores.'"
+    },
+    {
+      "text": "Uses stable document IDs from the ServiceNow KB article primary key in the ingestion connector.",
+      "passed": true,
+      "evidence": "response.md Document shape uses id 'kb_KB0001234' and notes 'Stable IDs (e.g. kb_<sys_id>) so re-runs upsert rather than duplicate.' connector_ingest.py to_discovery_document() sets id=f'kb_{sys_id}' where sys_id is the article's primary key from the Table API, and import_documents passes id_field='id'."
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "failed": 1,
+    "total": 8,
+    "pass_rate": 0.875
+  },
+  "execution_metrics": {
+    "output_chars": 28922,
+    "files_produced": 4
+  },
+  "timing": {
+    "executor_duration_seconds": 221.0,
+    "total_duration_seconds": 221.0,
+    "total_tokens": 44555
+  },
+  "claims": [
+    {
+      "claim": "Gemini Enterprise custom MCP data stores require StreamableHTTP transport and do not support SSE.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "This matches the documented Gemini Enterprise custom MCP constraints and is consistent across the response and code."
+    },
+    {
+      "claim": "OAuth redirect URL for Gemini Enterprise -> custom MCP server is https://vertexaisearch.cloud.google.com/oauth-redirect.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "This is the documented redirect URI used by Gemini Enterprise custom MCP server OAuth setup."
+    },
+    {
+      "claim": "Custom MCP tools are disabled by default and require admin enablement.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Stated in response.md Option A and Limitations section. Matches documented Gemini Enterprise behavior."
+    },
+    {
+      "claim": "You cannot run both a custom MCP server and a custom ADK agent for the same conversation surface — 'pick once.'",
+      "type": "factual",
+      "verified": true,
+      "evidence": "response.md Limitations: 'A custom ADK agent replaces the assistant; a custom MCP server adds tools the assistant can call. You can do either, not both for the same conversation surface.' This reflects current Gemini Enterprise app/agent topology."
+    },
+    {
+      "claim": "ADK exposes a @tool decorator from google.adk.tools.",
+      "type": "factual",
+      "verified": false,
+      "evidence": "adk_agent.py imports `from google.adk.tools import tool` and decorates functions with @tool. In the ADK Python API, tools are typically defined either as plain Python functions passed into Agent(tools=[...]) or wrapped via FunctionTool — there is no widely-documented `tool` decorator export at google.adk.tools. This may be a hallucinated API and the code as written would likely fail to import."
+    },
+    {
+      "claim": "Discovery Engine Document.AclInfo has a nested AccessRestriction class with idp_wide and principals fields, and Principal exposes group_id.",
+      "type": "factual",
+      "verified": false,
+      "evidence": "connector_ingest.py uses Document.AclInfo.AccessRestriction(idp_wide=True) and Document.AclInfo.AccessRestriction.Principal(group_id=...). The actual discoveryengine_v1 ACL schema uses Document.AclInfo with `readers` list of Document.AclInfo.AccessRestriction, but the exact nested Principal class path and field names should be verified against the proto — this may not match the SDK exactly. The conceptual mapping (idp_wide vs principal/group) is correct."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [
+      "ADK @tool decorator import path in adk_agent.py may not match the actual google.adk.tools API — agents typically pass plain functions to Agent(tools=[...]).",
+      "Discovery Engine AclInfo / Principal class paths in connector_ingest.py should be confirmed against the actual discoveryengine_v1 proto."
+    ],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Explains that ingestion connectors are read-only into the datastore and cannot write back to the source, which is why a write action requires an MCP server.",
+        "reason": "The response separates read/write paths and explains why native actions don't fit, but never says the ingestion direction itself is one-way. The assertion is currently passable by a response that just splits the paths without explaining the underlying constraint. Consider sharpening to require an explicit statement like 'ingestion is source -> datastore only' OR loosening to accept the architectural split. As written, my failing verdict was a close call."
+      },
+      {
+        "reason": "No assertion checks that the response calls out the correct OAuth redirect URI (https://vertexaisearch.cloud.google.com/oauth-redirect) or that custom MCP tools start disabled and must be admin-enabled — these are concrete, easy-to-miss operational details that the response got right and would be worth verifying."
+      },
+      {
+        "reason": "No assertion checks ID stability for write-path idempotency or that the ingestion code uses INCREMENTAL/FULL reconciliation modes with id_field — the response surfaces these correctly but the eval doesn't verify the value-add."
+      },
+      {
+        "assertion": "Defines a create_ticket (or similar) MCP tool with a narrow, verb-led signature — not a generic write_anything tool.",
+        "reason": "The assertion would pass on any narrow tool name. It doesn't verify that the tool has typed parameters matching ServiceNow incident semantics (short_description, caller_id, urgency). Consider strengthening to require typed parameters and a return shape that includes a ticket identifier."
+      }
+    ],
+    "overall": "Assertions cover the architectural decision well but lean on presence rather than correctness for some operational details. One assertion (read-only constraint) is ambiguous about whether architectural separation alone counts."
+  }
+}

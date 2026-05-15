@@ -1,0 +1,32 @@
+# Deploy with:
+#   gcloud run jobs replace cloud_run_job.yaml --region=us-central1
+#   gcloud scheduler jobs create http sf-policy-sync \
+#     --schedule="*/30 * * * *" \
+#     --uri="https://us-central1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT_ID/jobs/sf-policy-sync:run" \
+#     --http-method=POST \
+#     --oauth-service-account-email=ge-sf-connector@$PROJECT_ID.iam.gserviceaccount.com
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: sf-policy-sync
+spec:
+  template:
+    spec:
+      template:
+        spec:
+          serviceAccountName: ge-sf-connector@acme-ge-prod.iam.gserviceaccount.com
+          timeoutSeconds: 3600
+          containers:
+            - image: us-central1-docker.pkg.dev/acme-ge-prod/connectors/sf-policy-sync:latest
+              env:
+                - {name: PROJECT_ID,    value: acme-ge-prod}
+                - {name: LOCATION,      value: global}
+                - {name: DATA_STORE_ID, value: successfactors-hr-policies}
+                - {name: IMS_ID,        value: successfactors-identities}
+                - {name: BUCKET,        value: acme-ge-successfactors-pdfs}
+                - {name: SF_API_HOST,   value: api4.successfactors.com}
+                - {name: SF_COMPANY_ID, value: ACME}
+                - {name: SF_CLIENT_ID,  valueFrom: {secretKeyRef: {name: sf-client-id,  key: latest}}}
+                - {name: SF_API_USER,   valueFrom: {secretKeyRef: {name: sf-api-user,   key: latest}}}
+                - {name: SF_PRIVATE_KEY_PEM, valueFrom: {secretKeyRef: {name: sf-private-key, key: latest}}}
+                - {name: SF_CERT_PEM,        valueFrom: {secretKeyRef: {name: sf-cert,        key: latest}}}

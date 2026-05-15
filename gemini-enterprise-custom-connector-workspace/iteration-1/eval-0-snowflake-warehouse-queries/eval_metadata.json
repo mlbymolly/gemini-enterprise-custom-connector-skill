@@ -1,0 +1,59 @@
+{
+  "eval_id": 0,
+  "eval_name": "snowflake-warehouse-queries",
+  "prompt": "We use Gemini Enterprise and we need to let our agents query our Snowflake warehouse for sales data. What's the right approach and can you scaffold the connector?",
+  "assertions": [
+    {
+      "name": "recommends_mcp_server_not_ingestion",
+      "text": "Recommends Custom MCP Server as the primary path for the Snowflake warehouse use case (not a Discovery Engine ingestion connector replicating warehouse data)."
+    },
+    {
+      "name": "explains_why_ingestion_wrong_for_warehouse",
+      "text": "Explains why ingesting a warehouse into Discovery Engine is the wrong pattern (live query semantics, scale, cost of replication)."
+    },
+    {
+      "name": "specifies_streamable_http_transport",
+      "text": "Specifies that the MCP server must use StreamableHTTP transport (NOT SSE, which Gemini Enterprise does not support)."
+    },
+    {
+      "name": "mcp_endpoint_https_with_mcp_path",
+      "text": "Notes that the MCP endpoint must be HTTPS and conventionally ends in /mcp."
+    },
+    {
+      "name": "tool_surface_includes_run_query",
+      "text": "Defines a tool surface that includes a SELECT-style run_query (or equivalent) tool, ideally with descriptive name and JSON Schema inputs."
+    },
+    {
+      "name": "select_only_guardrail",
+      "text": "Bakes in a guardrail that rejects non-SELECT statements (DDL/DML), rather than trusting string matching alone."
+    },
+    {
+      "name": "row_cap_or_limit_guardrail",
+      "text": "Includes a row cap / LIMIT injection so a single tool call cannot return arbitrarily large result sets."
+    },
+    {
+      "name": "statement_timeout_guardrail",
+      "text": "Mentions a Snowflake statement timeout (e.g., STATEMENT_TIMEOUT_IN_SECONDS) to prevent runaway queries from burning warehouse credits."
+    },
+    {
+      "name": "auth_options_discussed",
+      "text": "Discusses Snowflake auth options (service account / key pair / OAuth passthrough), not just one."
+    },
+    {
+      "name": "cloud_run_deployment",
+      "text": "Recommends Cloud Run (or equivalent managed HTTPS hosting) for the MCP server."
+    },
+    {
+      "name": "oauth_offline_access_scope",
+      "text": "Mentions including the offline_access scope so Gemini can refresh tokens."
+    },
+    {
+      "name": "oauth_redirect_uri_exact",
+      "text": "Specifies the exact Gemini OAuth redirect URI (https://vertexaisearch.cloud.google.com/oauth-redirect) needed when registering the OAuth client."
+    },
+    {
+      "name": "registration_steps_in_gemini_console",
+      "text": "Walks through registering the datastore in the Gemini Enterprise console (Custom MCP Server type, the fields to fill, the Reload custom actions step)."
+    }
+  ]
+}

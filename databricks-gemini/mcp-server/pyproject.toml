@@ -1,0 +1,16 @@
+[project]
+name = "databricks-mcp-server"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastmcp>=0.4",
+    "databricks-sql-connector>=3.4",
+    "databricks-sdk>=0.30",
+    "sqlglot>=25.0",
+    "requests>=2.31",
+    "google-cloud-secret-manager>=2.20",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

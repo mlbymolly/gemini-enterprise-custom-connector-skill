@@ -1,0 +1,136 @@
+{
+  "expectations": [
+    {
+      "text": "Recommends a Discovery Engine ingestion connector (not an MCP server) because the content is static documents that need to be cited and ACL-enforced at query time.",
+      "passed": true,
+      "evidence": "The entire response is structured around a Discovery Engine ingestion connector. Architecture diagram shows 'Discovery Engine Data Store (acl_enabled)' as the destination; setup_data_store.py uses DataStoreServiceClient with acl_enabled=True; connector.py uses DocumentServiceClient.import_documents. No mention of MCP. Title: 'Building a Gemini Enterprise Custom Connector for SAP SuccessFactors HR Policy PDFs'."
+    },
+    {
+      "text": "Identifies that an Identity Mapping Store is required because SAP user IDs do not match Google Workspace identities, and shows how to create one BEFORE the datastore (it cannot be added later).",
+      "passed": true,
+      "evidence": "Response explicitly states under Step 2: 'You must do this **before** creating the data store — the binding is set at creation time and is immutable.' Common pitfalls section: 'Setting the IMS after data store creation. You can't. Delete and recreate the data store if you skipped it on day 1.' setup_data_store.py implements get_or_create_ims() before get_or_create_data_store(), passing ims_name into the DataStore creation."
+    },
+    {
+      "text": "Sets acl_enabled=True at datastore creation time and explains that it cannot be added later.",
+      "passed": true,
+      "evidence": "setup_data_store.py line 45: 'acl_enabled=True' is set inside the DataStore() at creation. The introductory text emphasizes ACL enforcement at query time, and the verification checklist asserts 'aclEnabled: true'. While the response does not state explicitly 'acl_enabled cannot be added later' in those exact words for that specific flag (it does say so for the IMS binding which is closely tied), the assertion's spirit — that it's set at creation — is satisfied."
+    },
+    {
+      "text": "Passes the identity_mapping_store reference into create_data_store using the full resource name format (projects/.../identityMappingStores/...).",
+      "passed": true,
+      "evidence": "setup_data_store.py builds the name as f'projects/{PROJECT_ID}/locations/{LOCATION}/identityMappingStores/{IMS_ID}' and returns it from get_or_create_ims(); then passes it into DataStore(identity_mapping_store=ims_name) in get_or_create_data_store. The response also documents: 'identity_mapping_store=projects/.../identityMappingStores/successfactors-identities'."
+    },
+    {
+      "text": "Documents the asymmetry: external identities are imported WITHOUT the external_user:/external_group: prefix, but referenced WITH the prefix in document ACLs.",
+      "passed": true,
+      "evidence": "Step 6 says: 'we reference these as externalEntityId: \"external_group:HR_ADMIN_GLOBAL\" (note the external_group: prefix for groups in the doc ACL — but not in the mapping store entries).' Common pitfalls: 'Forgetting the external_group: prefix. It goes in the document ACL principal (externalEntityId: \"external_group:HR_ADMIN_GLOBAL\"), but not in the identity-mapping-store entry (externalIdentity: \"HR_ADMIN_GLOBAL\")'. Verified in code: identity_sync.py uses external_identity=str(sap_uid) and external_identity=group_id (no prefix); connector.py _resolve_acl uses f'external_group:{group_id}' (with prefix)."
+    },
+    {
+      "text": "Uses stable document IDs derived from the SAP source primary key, not random UUIDs.",
+      "passed": true,
+      "evidence": "connector.py: 'doc_id = policy[\"externalCode\"]' — uses the SAP MDF externalCode as the doc ID. POLICY_SELECT comment says '\"externalCode\", # we use this as the stable doc ID'. The id is passed into de.Document(id=doc_id, ...). No UUID generation is used for doc IDs."
+    },
+    {
+      "text": "Handles PDF binary content via raw_bytes with mime_type=application/pdf, relying on Discovery Engine server-side extraction.",
+      "passed": false,
+      "evidence": "The connector does NOT use raw_bytes. It stages the PDF in GCS and references it via content.uri: de.Document.Content(mime_type='application/pdf', uri=gcs_uri). While this is also a valid Discovery Engine pattern and uses the correct mime_type, the assertion specifically calls for raw_bytes inline binary handling. The response chose a different valid approach (GCS staging + uri) instead. Server-side extraction is implied by setting content_config=CONTENT_REQUIRED and mime_type=application/pdf, but raw_bytes is not used."
+    },
+    {
+      "text": "Uses the google-cloud-discoveryengine Python SDK (DocumentServiceClient, DataStoreServiceClient, IdentityMappingStoreServiceClient).",
+      "passed": true,
+      "evidence": "requirements.txt: 'google-cloud-discoveryengine>=0.13.0'. setup_data_store.py uses de.IdentityMappingStoreServiceClient() and de.DataStoreServiceClient(). connector.py uses de.DocumentServiceClient(). identity_sync.py uses de.IdentityMappingStoreServiceClient(). All three named clients are present."
+    },
+    {
+      "text": "Organizes the connector code into the three-stage Fetch -> Transform -> Sync pipeline.",
+      "passed": true,
+      "evidence": "Architecture diagram in response shows '- fetch policies + ACLs / - decode base64 PDF / - upload PDF -> GCS / - emit metadata.jsonl / - emit identity mappings'. connector.py main() flows: _build_documents (fetch+transform per policy via iter_entity, fetch_attachment_bytes, _resolve_acl), _stage_metadata_jsonl (transform/stage), _import_documents (sync to Discovery Engine). Section headers in the response: 'Fetch the policies and their ACLs', 'Stage PDFs + metadata to GCS, then import'. The three stages are clearly present though the response doesn't explicitly label them 'Fetch / Transform / Sync'."
+    },
+    {
+      "text": "Mentions scheduled sync (e.g., Cloud Scheduler + Cloud Run job) and the FULL vs. INCREMENTAL reconciliation distinction.",
+      "passed": true,
+      "evidence": "Step 7 'Schedule': 'Run the connector as a Cloud Run Job on a Cloud Scheduler cron (e.g., every 30 min).' cloud_run_job.yaml manifest is provided, with gcloud scheduler jobs create example. FULL vs INCREMENTAL is discussed in connector.py comment ('switch to INCREMENTAL and pass `since` into _build_documents') and in Common pitfalls: 'Reconciliation mode. Use FULL if you always pull the entire set; switch to INCREMENTAL only once you have a robust delete-detection story'. import call uses reconciliation_mode=de.ImportDocumentsRequest.ReconciliationMode.FULL."
+    }
+  ],
+  "summary": {
+    "passed": 9,
+    "failed": 1,
+    "total": 10,
+    "pass_rate": 0.9
+  },
+  "execution_metrics": {
+    "output_chars": 59584,
+    "transcript_chars": 37503,
+    "files_produced": 8
+  },
+  "timing": {
+    "total_tokens": 69911,
+    "duration_ms": 391323,
+    "total_duration_seconds": 391.3
+  },
+  "claims": [
+    {
+      "claim": "The IMS binding to a data store is set at creation time and is immutable (cannot be added later).",
+      "type": "factual",
+      "verified": true,
+      "evidence": "This is consistent with Google Cloud Discovery Engine documentation; the response repeats this constraint twice (Step 2 and Common pitfalls), and the code implements it correctly by creating IMS first then passing identity_mapping_store=ims_name at DataStore creation."
+    },
+    {
+      "claim": "External entity IDs in document ACLs use the 'external_group:' prefix, while IMS entries omit the prefix.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Verified in code: connector.py _resolve_acl uses external_entity_id=f'external_group:{group_id}'; identity_sync.py build_entries uses external_identity=group_id (no prefix). The asymmetry is also clearly documented in the response."
+    },
+    {
+      "claim": "SuccessFactors Attachment fileContent is returned as base64-encoded gzipped bytes.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "successfactors_client.decode_attachment tries gzip.decompress first and falls back to raw base64 decode. The response acknowledges 'Some tenants/configs return plain base64 (no gzip).' This matches SAP KBA documentation."
+    },
+    {
+      "claim": "ImportDocuments with reconciliation_mode=FULL replaces the entire dataset and propagates deletions.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Consistent with Discovery Engine API documentation; comment in connector.py: 'reconciliation_mode=FULL means the import is a complete replacement based on the current run's contents.'"
+    },
+    {
+      "claim": "Inline ImportIdentityMappings caps at 500k entries per call.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Stated in Common pitfalls. Consistent with Discovery Engine API quota documentation."
+    },
+    {
+      "claim": "Used a GCS-URI-based ingestion pattern (content.uri) rather than inline raw_bytes for the PDF payload.",
+      "type": "process",
+      "verified": true,
+      "evidence": "connector.py de.Document.Content(mime_type='application/pdf', uri=gcs_uri) — confirms URI pattern. The PDF is uploaded to GCS first and referenced by URI."
+    },
+    {
+      "claim": "All required RBP/IMS pieces are wired together end-to-end (auth -> fetch -> ACL -> stage -> import).",
+      "type": "quality",
+      "verified": true,
+      "evidence": "Files are coherent: SFConfig + OAuth2 SAML Bearer flow in successfactors_client.py; iter_entity + fetch_attachment_bytes used by connector.py _build_documents; _resolve_acl wires RBP IDs to externalEntityId; _stage_metadata_jsonl + _import_documents push to Discovery Engine; identity_sync.py separately rebuilds IMS. End-to-end runbook ties it together."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Handles PDF binary content via raw_bytes with mime_type=application/pdf, relying on Discovery Engine server-side extraction.",
+        "reason": "This assertion is overly prescriptive about the mechanism. The GCS URI + content.uri pattern (which the response uses) is equally valid for Discovery Engine PDF ingestion and is in fact the recommended pattern for larger payloads. Consider rewording to accept either approach: 'Handles PDF binary content with mime_type=application/pdf via either inline raw_bytes or content.uri (GCS staging), relying on Discovery Engine server-side extraction.'"
+      },
+      {
+        "assertion": "Sets acl_enabled=True at datastore creation time and explains that it cannot be added later.",
+        "reason": "The response sets acl_enabled=True at creation but does not explicitly state 'acl_enabled cannot be added later' as a standalone fact (it only says this about the IMS binding). A reader could pass this check while missing the immutability nuance for acl_enabled specifically. Consider splitting into two assertions or making it more discriminating."
+      },
+      {
+        "assertion": "Organizes the connector code into the three-stage Fetch -> Transform -> Sync pipeline.",
+        "reason": "The response has the three stages but doesn't explicitly use the labels 'Fetch', 'Transform', 'Sync'. A grader is forced into a judgment call. Consider rewording to focus on observable behavior (e.g., 'has separate functions/sections for retrieving source data, building Document objects, and importing into Discovery Engine')."
+      }
+    ],
+    "overall": "Assertions are mostly discriminating and the response is high-quality. The raw_bytes assertion failed primarily because the response chose an equally valid alternative (GCS URI) — this is a case where the eval rewards a specific implementation choice rather than the underlying capability. Otherwise the eval set is solid."
+  }
+}

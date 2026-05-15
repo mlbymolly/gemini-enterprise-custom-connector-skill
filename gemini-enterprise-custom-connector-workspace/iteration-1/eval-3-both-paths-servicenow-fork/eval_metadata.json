@@ -1,0 +1,39 @@
+{
+  "eval_id": 3,
+  "eval_name": "both-paths-servicenow-fork",
+  "prompt": "We want our Gemini agent to both read knowledge articles AND create tickets in ServiceNow — except we use a fork of ServiceNow that isn't the native connector. How do I do this?",
+  "assertions": [
+    {
+      "name": "identifies_both_paths_needed",
+      "text": "Identifies that BOTH paths are needed for this use case — an ingestion connector for the knowledge corpus and an MCP server for the write (create ticket) action."
+    },
+    {
+      "name": "explains_ingestion_readonly_constraint",
+      "text": "Explains that ingestion connectors are read-only into the datastore and cannot write back to the source, which is why a write action requires an MCP server."
+    },
+    {
+      "name": "mcp_create_ticket_tool",
+      "text": "Defines a create_ticket (or similar) MCP tool with a narrow, verb-led signature — not a generic write_anything tool."
+    },
+    {
+      "name": "ingestion_for_kb_corpus",
+      "text": "Uses the ingestion connector pattern for the knowledge articles corpus so answers can be grounded with citations."
+    },
+    {
+      "name": "addresses_acl_for_kb",
+      "text": "Addresses how ACLs map for the KB corpus — readers per article or idp_wide where appropriate."
+    },
+    {
+      "name": "addresses_auth_for_both",
+      "text": "Addresses authentication for both paths — OAuth for the MCP server, and a service account or fetch-time credentials for the ingestion connector."
+    },
+    {
+      "name": "streamable_http_for_mcp",
+      "text": "Specifies StreamableHTTP transport for the MCP server (not SSE)."
+    },
+    {
+      "name": "stable_doc_ids",
+      "text": "Uses stable document IDs from the ServiceNow KB article primary key in the ingestion connector."
+    }
+  ]
+}

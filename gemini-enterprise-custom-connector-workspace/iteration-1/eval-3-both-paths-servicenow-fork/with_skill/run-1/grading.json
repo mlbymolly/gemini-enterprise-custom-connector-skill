@@ -1,0 +1,120 @@
+{
+  "expectations": [
+    {
+      "text": "Identifies that BOTH paths are needed for this use case — an ingestion connector for the knowledge corpus and an MCP server for the write (create ticket) action.",
+      "passed": true,
+      "evidence": "Response intro states: 'because you want both read (search knowledge articles with citations) and write (create tickets), you need both Gemini Enterprise extension points, not one. Specifically: Custom Connector → Discovery Engine datastore ingests your KB articles ... Custom MCP Server exposes a create_incident tool'. Architecture diagram and the two sections 'Path A: Ingestion connector for KB articles' and 'Path B: MCP server for live writes' make the dual-path approach explicit."
+    },
+    {
+      "text": "Explains that ingestion connectors are read-only into the datastore and cannot write back to the source, which is why a write action requires an MCP server.",
+      "passed": true,
+      "evidence": "Decision tree explicitly states: 'Write back to the source? — Yes (create tickets) → MCP.' Also: 'creating a ticket is a write, which means MCP regardless.' The architecture explicitly separates ingestion (FULL/INCREMENTAL import to datastore) from MCP (live tools to ServiceNow), establishing the read-only-into-datastore vs. write-back distinction."
+    },
+    {
+      "text": "Defines a create_ticket (or similar) MCP tool with a narrow, verb-led signature — not a generic write_anything tool.",
+      "passed": true,
+      "evidence": "server.py defines create_incident(short_description, description, urgency, caller_email) as a narrow, verb-led tool, alongside get_incident(number) and update_incident(number, work_notes, state). Tools are scoped to specific incident operations, not generic write/CRUD. Response also notes 'Tool descriptions are the routing signal' and emphasizes verb-led naming."
+    },
+    {
+      "text": "Uses the ingestion connector pattern for the knowledge articles corpus so answers can be grounded with citations.",
+      "passed": true,
+      "evidence": "Response: 'Custom Connector → Discovery Engine datastore ingests your KB articles on a schedule so Gemini can ground answers in them with citations and ACL enforcement.' connector.py implements the canonical fetch→transform→GCS JSONL→import pattern, and transform.py builds discoveryengine.Document objects with source_url in struct_data for citations."
+    },
+    {
+      "text": "Addresses how ACLs map for the KB corpus — readers per article or idp_wide where appropriate.",
+      "passed": true,
+      "evidence": "ACL handling appears in both transform.py and response. transform.py constructs readers from 'can_read_user_criteria' as external_group principals, with fallback to idp_wide: True. Response notes: 'external_group:<criteria_sys_id> for criteria-based access ... idp_wide: True for the special public KB case' and warns 'default-deny is safer than default-open'. Also covers IMS asymmetry: bare sys_id when importing vs prefixed when referencing in ACL."
+    },
+    {
+      "text": "Addresses authentication for both paths — OAuth for the MCP server, and a service account or fetch-time credentials for the ingestion connector.",
+      "passed": true,
+      "evidence": "MCP path: auth.py validates IdP-issued bearer tokens via OAuth introspection; deploy step shows OAUTH_INTROSPECT_URL, OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET env vars and registering redirect URI. Ingestion path: source_fetcher.py uses SNOW_USER/SNOW_PASSWORD (with the comment 'Prefer OAuth client credentials in production'), and response mentions the service account requirement in the one-time setup section."
+    },
+    {
+      "text": "Specifies StreamableHTTP transport for the MCP server (not SSE).",
+      "passed": true,
+      "evidence": "server.py line 79: 'mcp.run(transport=\"streamable-http\", host=\"0.0.0.0\", port=8080, path=\"/mcp\")' with comment 'StreamableHTTP is the ONLY transport Gemini Enterprise accepts. Do NOT switch to SSE'. Response 'Things that will bite you' reiterates: 'StreamableHTTP only. If you're starting from an MCP example that uses SSE, switch transports first or tools/list will return zero.'"
+    },
+    {
+      "text": "Uses stable document IDs from the ServiceNow KB article primary key in the ingestion connector.",
+      "passed": true,
+      "evidence": "transform.py line 14: `doc_id = f\"snow_kb:{article['sys_id']}\"`. Response says: 'Stable ID: f\"snow_kb:{article['sys_id']}\" — sys_id is ServiceNow's primary key, won't change on edits.' Pitfalls section adds: 'Don't use UUIDs as document IDs. snow_kb:{sys_id} is stable across re-runs; uuid4() makes duplicates on every sync.'"
+    }
+  ],
+  "summary": {
+    "passed": 8,
+    "failed": 0,
+    "total": 8,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {
+    "tool_calls": {},
+    "total_tool_calls": 0,
+    "total_steps": 0,
+    "errors_encountered": 0,
+    "output_chars": 38930,
+    "transcript_chars": 0
+  },
+  "timing": {
+    "executor_duration_seconds": 227.2,
+    "total_duration_seconds": 227.2
+  },
+  "claims": [
+    {
+      "claim": "Private Service Connect / VPC-SC are not supported for MCP datastores in preview.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Stated twice in response, consistent with skill documentation cited as the source. Cannot verify against external sources from this evaluation context, but aligns with stated skill knowledge."
+    },
+    {
+      "claim": "acl_enabled=True must be set at datastore creation time and cannot be added later.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Stated in 'One-time setup' and reiterated in 'Things that will bite you'. Consistent with documented Discovery Engine behavior referenced by the skill."
+    },
+    {
+      "claim": "Inline import is incremental-only; the GCS JSONL pattern is the production path.",
+      "type": "process",
+      "verified": true,
+      "evidence": "connector.py implements the GCS JSONL pattern with ReconciliationMode.FULL vs INCREMENTAL based on mode, matching the claim."
+    },
+    {
+      "claim": "Native ServiceNow connector won't work against a fork.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Response qualifies this thoughtfully: 'Confirm before going custom that this is actually true for your fork ... If your fork is just service-now.com with custom tables, the native connector + a few custom tool calls in MCP can sometimes be cheaper than building both from scratch.' Demonstrates nuance rather than overclaiming."
+    },
+    {
+      "claim": "Bearer token in auth.py is validated against the corporate IdP, not the ServiceNow fork's OAuth.",
+      "type": "process",
+      "verified": true,
+      "evidence": "auth.py docstring explicitly notes 'This is NOT the ServiceNow fork's OAuth server — it's your corporate IdP'. Response section reinforces this distinction."
+    },
+    {
+      "claim": "caller_id may need sys_id lookup for the fork.",
+      "type": "quality",
+      "verified": true,
+      "evidence": "source_client.py line 398 includes the comment '# fork-specific: may need sys_id lookup' next to caller_id assignment, acknowledging a real ServiceNow quirk rather than pretending email-as-caller_id always works."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Addresses authentication for both paths — OAuth for the MCP server, and a service account or fetch-time credentials for the ingestion connector.",
+        "reason": "The assertion passes here but would also pass for a response that handwaves ('use OAuth somewhere'). Consider tightening to verify a concrete mechanism — e.g., bearer token introspection or JWT validation in the MCP server, and that the ingestion connector's auth doesn't accidentally rely on the end-user's token (which it shouldn't, since it runs as a Cloud Run Job)."
+      },
+      {
+        "reason": "No assertion checks the watermark / incremental-sync pattern for the ingestion path, which is a major correctness concern for KB freshness. The response handled it well (sys_updated_on watermark in GCS, FULL weekly + INCREMENTAL 30m), but a wrong answer that re-imported everything every run would pass all current assertions."
+      },
+      {
+        "reason": "No assertion checks that the two datastores are wired to a single Gemini Enterprise app. The response explicitly addresses this ('Wiring both to one Gemini Enterprise app' section), which is the differentiator for genuinely-both-paths understanding vs. just describing each path independently."
+      }
+    ],
+    "overall": "All 8 assertions pass with strong evidence. The response goes well beyond surface compliance — providing working code for both paths, calling out fork-specific concerns, and addressing the cross-path wiring that ties the use case together. A few assertions could be sharpened to better discriminate genuine understanding from boilerplate, particularly around incremental sync and the dual-datastore wiring."
+  }
+}

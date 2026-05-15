@@ -1,0 +1,47 @@
+{
+  "eval_id": 1,
+  "eval_name": "sap-successfactors-pdfs",
+  "prompt": "I have a bunch of HR policy PDFs in SAP SuccessFactors that I want our Gemini Enterprise agent to be able to cite. Help me build the connector — we use Workday for SSO and SAP user IDs don't match Google emails.",
+  "assertions": [
+    {
+      "name": "recommends_ingestion_not_mcp",
+      "text": "Recommends a Discovery Engine ingestion connector (not an MCP server) because the content is static documents that need to be cited and ACL-enforced at query time."
+    },
+    {
+      "name": "uses_identity_mapping_store",
+      "text": "Identifies that an Identity Mapping Store is required because SAP user IDs do not match Google Workspace identities, and shows how to create one BEFORE the datastore (it cannot be added later)."
+    },
+    {
+      "name": "acl_enabled_at_creation",
+      "text": "Sets acl_enabled=True at datastore creation time and explains that it cannot be added later."
+    },
+    {
+      "name": "ims_referenced_at_datastore_creation",
+      "text": "Passes the identity_mapping_store reference into create_data_store using the full resource name format (projects/.../identityMappingStores/...)."
+    },
+    {
+      "name": "external_identity_prefix_correct",
+      "text": "Documents the asymmetry: external identities are imported WITHOUT the external_user:/external_group: prefix, but referenced WITH the prefix in document ACLs."
+    },
+    {
+      "name": "stable_doc_ids_from_source_pk",
+      "text": "Uses stable document IDs derived from the SAP source primary key, not random UUIDs."
+    },
+    {
+      "name": "pdf_mime_type_handled",
+      "text": "Handles PDF binary content via raw_bytes with mime_type=application/pdf, relying on Discovery Engine server-side extraction."
+    },
+    {
+      "name": "uses_google_cloud_discoveryengine_sdk",
+      "text": "Uses the google-cloud-discoveryengine Python SDK (DocumentServiceClient, DataStoreServiceClient, IdentityMappingStoreServiceClient)."
+    },
+    {
+      "name": "fetch_transform_sync_structure",
+      "text": "Organizes the connector code into the three-stage Fetch → Transform → Sync pipeline."
+    },
+    {
+      "name": "scheduled_sync_mentioned",
+      "text": "Mentions scheduled sync (e.g., Cloud Scheduler + Cloud Run job) and the FULL vs. INCREMENTAL reconciliation distinction."
+    }
+  ]
+}

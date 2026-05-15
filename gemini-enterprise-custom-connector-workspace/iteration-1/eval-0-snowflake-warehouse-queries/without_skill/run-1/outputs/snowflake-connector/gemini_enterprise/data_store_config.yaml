@@ -1,0 +1,45 @@
+# =====================================================================
+# data_store_config.yaml
+# Values you'll enter in the Gemini Enterprise console when creating
+# the "Custom MCP Server (Preview)" data store.
+#
+# Console path:
+#   Gemini Enterprise > Data stores > Create data store
+#                     > Custom MCP Server (Preview)
+# =====================================================================
+
+display_name: "Snowflake Sales Warehouse"
+location: "global"                      # or your multi-region
+
+mcp_server:
+  # From `DESC MCP SERVER GE_SALES_MCP;` -- always ends in /mcp
+  url: "https://<account-locator>.snowflakecomputing.com/api/v2/databases/SALES_DB/schemas/ANALYTICS/mcp-servers/GE_SALES_MCP/mcp"
+  transport: "STREAMABLE_HTTP"          # SSE is NOT supported
+
+  # Free-form description -- Gemini's planner reads this when deciding
+  # whether to call the server. Be specific about WHAT and WHEN.
+  description: |
+    Authoritative source for all sales, revenue, order, customer and
+    product analytics. Backed by the governed Snowflake sales
+    warehouse. Use whenever the user asks about: revenue, sales,
+    bookings, orders, units sold, average order value, customer
+    segments, regions, products, SKUs, fiscal quarters, year-over-year
+    comparisons, or any number that lives in the sales data warehouse.
+    Do NOT use this server for: HR data, finance GL data, marketing
+    campaign data, or anything outside the sales schema.
+
+# ---- OAuth (user-delegated) ----------------------------------------
+# Gemini Enterprise must be registered as an OAuth client in your IdP
+# with redirect URI:  https://vertexaisearch.cloud.google.com/oauth-redirect
+oauth:
+  authorization_url: "https://login.microsoftonline.com/<tenant-id>/oauth2/v2.0/authorize"
+  token_url:         "https://login.microsoftonline.com/<tenant-id>/oauth2/v2.0/token"
+  client_id:         "<gemini-enterprise-app-id>"
+  client_secret:     "<gemini-enterprise-app-secret>"
+  scopes:            "offline_access api://<gemini-enterprise-app-id>/session:role-any"
+
+# ---- Tools to enable after creation --------------------------------
+# By default NO tools are enabled. Enable explicitly:
+enabled_tools:
+  - "sales_analyst"
+  # - "run_sql"   # leave disabled until you decide free-form SQL is safe

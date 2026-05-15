@@ -1,0 +1,128 @@
+{
+  "expectations": [
+    {
+      "text": "Picks the ingestion connector path (Fetch → Transform → Sync into Discovery Engine), not an MCP server.",
+      "passed": true,
+      "evidence": "response.md Architecture section shows 'Cloud Scheduler → Cloud Run Job ... GET /articles ... transform + batch ... Discovery Engine importDocuments'. File layout includes connector/cms_client.py (extract), connector/transform.py, connector/gemini_sink.py (load). No MCP server is mentioned anywhere."
+    },
+    {
+      "text": "Uses GCS JSONL import (GcsSource) rather than inline import for the sync, given 50k documents — explicitly or implicitly explains why inline doesn't scale.",
+      "passed": false,
+      "evidence": "The implementation in connector/gemini_sink.py explicitly uses InlineSource: 'inline_source=discoveryengine.ImportDocumentsRequest.InlineSource(documents=de_docs)'. response.md Assumption 4 states 'Inline importDocuments calls (batches of 100) are sufficient; we don't need a GCS staging pipeline.' GCS staging is only mentioned as a recommendation for the initial backfill in the Scaling notes, but no GcsSource code is implemented. The assertion requires using GCS JSONL for the sync; the scaffold instead defaults to inline for both full and incremental runs."
+    },
+    {
+      "text": "Derives stable document IDs from the CMS article primary key, not random UUIDs.",
+      "passed": true,
+      "evidence": "connector/transform.py line 45: 'article_id = str(article[\"id\"])' and the returned doc uses 'id': article_id. connector/gemini_sink.py constructs discoveryengine.Document(id=d[\"id\"], ...) with auto_generate_ids=False and id_field=\"id\". No UUIDs are generated."
+    },
+    {
+      "text": "Implements paginated reads from the REST API rather than assuming a single response.",
+      "passed": true,
+      "evidence": "connector/cms_client.py iter_articles() uses a while-loop driven by 'next_page' from each response with page/page_size params; it yields items per page until next_page is null."
+    },
+    {
+      "text": "Uses a watermark (e.g., updated_at) and INCREMENTAL reconciliation mode for hourly syncs, with a FULL first run.",
+      "passed": true,
+      "evidence": "connector/state.py read_watermark/write_watermark persist max(updated_at). connector/gemini_sink.py uses 'reconciliation_mode=discoveryengine.ImportDocumentsRequest.ReconciliationMode.INCREMENTAL'. connector/main.py sets 'watermark = None if CONFIG.run_mode == \"full\" else read_watermark()' supporting a full first run via RUN_MODE=full."
+    },
+    {
+      "text": "Recommends a concrete scheduling mechanism (Cloud Scheduler → Cloud Run Job) for the hourly cadence.",
+      "passed": true,
+      "evidence": "deploy/cloud_run_job.sh creates a Cloud Run Job and registers a 'gcloud scheduler jobs create http' with schedule '0 * * * *'. response.md Assumption 5: 'Cloud Run Job triggered by Cloud Scheduler at 0 * * * * UTC'."
+    },
+    {
+      "text": "Makes the ACL strategy explicit — either idp_wide=True (if articles are org-wide readable) or per-document readers — not silently skipping ACL configuration.",
+      "passed": false,
+      "evidence": "ACL handling is only mentioned conditionally in the 'Open items / things to confirm before production' section ('If articles have per-user ACLs, populate aclInfo on the Document'). No explicit choice between idp_wide=True or per-document readers is made; no aclInfo is populated in transform.py; no idp_wide flag is configured anywhere. The scaffold effectively skips ACL configuration."
+    },
+    {
+      "text": "Uses the google-cloud-discoveryengine Python SDK.",
+      "passed": true,
+      "evidence": "requirements.txt: 'google-cloud-discoveryengine>=0.13.0'. connector/gemini_sink.py imports 'from google.cloud import discoveryengine_v1 as discoveryengine' and uses DocumentServiceClient, ImportDocumentsRequest, Document, etc."
+    },
+    {
+      "text": "Sets acl_enabled=True at datastore creation time.",
+      "passed": false,
+      "evidence": "response.md Assumption 3 states the datastore is 'pre-created' and 'configured for unstructured data with metadata' but the scaffold never creates the datastore. There is no DataStoreServiceClient call, no 'acl_enabled=True' setting anywhere in the code or deploy scripts. No mention of acl_enabled in the response."
+    },
+    {
+      "text": "Addresses how deletes are handled (PurgeDocuments, periodic FULL re-sync, or explicit acknowledgment that the source is append-only).",
+      "passed": true,
+      "evidence": "connector/transform.py routes 'status == \"deleted\"' to a delete sentinel; connector/gemini_sink.py GeminiSink.delete_ids() calls self._client.delete_document() per id. response.md Assumption 6 and Open items #1 explicitly call out tombstones and a weekly reconciliation alternative for hard deletes ('add a weekly reconciliation that lists all current CMS IDs vs. listDocuments() and deletes the difference')."
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "failed": 3,
+    "total": 10,
+    "pass_rate": 0.7
+  },
+  "execution_metrics": {
+    "tool_calls": {},
+    "total_tool_calls": 0,
+    "total_steps": 0,
+    "errors_encountered": 0,
+    "output_chars": 25800,
+    "transcript_chars": 0
+  },
+  "timing": {
+    "executor_duration_seconds": 157.7,
+    "total_duration_seconds": 157.7
+  },
+  "claims": [
+    {
+      "claim": "Inline importDocuments is sufficient for 50k docs because hourly deltas are well under 5k items.",
+      "type": "quality",
+      "verified": false,
+      "evidence": "The eval explicitly calls out 50k articles as a scale requiring GCS JSONL import. Even if hourly deltas are small, the initial backfill of 50k via inline batches of 100 means ~500 LRO calls, each waiting on op.result(timeout=900). The 'Scaling' section acknowledges GCS is preferred for backfill but the code never implements it. The scaffold defers the right answer to a TODO."
+    },
+    {
+      "claim": "The scaffold uses ReconciliationMode.INCREMENTAL to upsert documents.",
+      "type": "process",
+      "verified": true,
+      "evidence": "connector/gemini_sink.py line 61: 'reconciliation_mode=discoveryengine.ImportDocumentsRequest.ReconciliationMode.INCREMENTAL'."
+    },
+    {
+      "claim": "Cloud Run Jobs is the recommended pattern for hourly stateless batch ingestion.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "This is consistent with GCP best-practice guidance and the deploy script implements it correctly with Cloud Scheduler invoking the Job via run.googleapis.com."
+    },
+    {
+      "claim": "Watermark is persisted to GCS state.json and advanced only on success.",
+      "type": "process",
+      "verified": true,
+      "evidence": "connector/state.py implements GCS upload via google.cloud.storage. connector/main.py advances max_updated_at after the loop and writes only at the end of run(); on exception the run exits non-zero before writing."
+    },
+    {
+      "claim": "Document IDs are derived from the CMS primary key (article['id']).",
+      "type": "factual",
+      "verified": true,
+      "evidence": "connector/transform.py line 45 stringifies article['id']; tests confirm 'doc[\"id\"] == \"42\"' for input id=42."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Sets acl_enabled=True at datastore creation time.",
+        "reason": "The prompt did not say whether the datastore exists. The output assumed a pre-created datastore and so trivially fails this assertion without ever wrestling with it. Consider rewording to: 'Either provisions the datastore with acl_enabled=True or explicitly notes that the pre-existing datastore must have acl_enabled=True (which cannot be changed after creation).' This rewards genuine awareness of the ACL-at-creation constraint rather than penalizing a 'pre-created datastore' assumption."
+      },
+      {
+        "assertion": "Uses GCS JSONL import (GcsSource) rather than inline import for the sync, given 50k documents — explicitly or implicitly explains why inline doesn't scale.",
+        "reason": "The scaffold passes the prose part ('switch to GCS staging for backfill') but fails the implementation part. The assertion text is ambiguous: it could be read as 'just mention GCS' or 'actually use GcsSource'. Tightening this to 'The generated code invokes ImportDocumentsRequest with GcsSource (not InlineSource)' would make the assertion discriminating."
+      },
+      {
+        "reason": "No assertion checks that the connector creates / configures the datastore at all. The current scaffold assumes a pre-existing datastore, which means the entire 'create with acl_enabled=True' path is untested in practice. Consider an assertion like 'Includes idempotent datastore provisioning code (DataStoreServiceClient.create_data_store) or an explicit gcloud command for it.'"
+      },
+      {
+        "reason": "No assertion checks for idempotency / safe restart behavior of the hourly job (e.g., that the watermark is only advanced after a successful import, or that failure mid-batch doesn't lose data). The scaffold handles this correctly, but an eval would not catch a worse output that advances the watermark eagerly."
+      }
+    ],
+    "overall": "The assertions are reasonable but several are loose enough that a partial/prose-only answer passes. The 'acl_enabled at creation' and 'GCS JSONL import' assertions in particular reward output that just mentions the right keywords without actually implementing them. Tightening these to require concrete code paths would improve discrimination."
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "expectations": [
+    {
+      "text": "Picks the ingestion connector path (Fetch → Transform → Sync into Discovery Engine), not an MCP server.",
+      "passed": true,
+      "evidence": "response.md 'Path decision' section explicitly walks the decision tree and concludes '→ Path B: Custom Connector → Discovery Engine datastore.' The architecture diagram shows 'fetch_articles → to_document → shard + write JSONL → import_documents(GcsSource, mode) → Discovery Engine datastore'. No MCP server is mentioned; the implementation is a Cloud Run Job pipeline (connector.py orchestrates fetch → transform → JSONL → import)."
+    },
+    {
+      "text": "Uses GCS JSONL import (GcsSource) rather than inline import for the sync, given 50k documents — explicitly or implicitly explains why inline doesn't scale.",
+      "passed": true,
+      "evidence": "response.md states 'GCS JSONL imports, not inline. Inline is incremental-only and caps at 100 docs/request — useless at 50k. GCS path supports both FULL and INCREMENTAL, and lets us shard.' connector.py uses `discoveryengine.GcsSource(input_uris=uris)` in the import_documents request and writes JSONL shards to GCS via write_jsonl_shards()."
+    },
+    {
+      "text": "Derives stable document IDs from the CMS article primary key, not random UUIDs.",
+      "passed": true,
+      "evidence": "transform.py line 41: `doc_id = f\"cms_article:{record['id']}\"`. response.md confirms: 'Stable document IDs derived from the CMS primary key: f\"cms_article:{record[\\'id\\']}\". Per SKILL.md \"Common pitfalls\", random UUIDs would create duplicates on every sync.' The uuid import in connector.py is only used for the run_id (GCS prefix), not document IDs."
+    },
+    {
+      "text": "Implements paginated reads from the REST API rather than assuming a single response.",
+      "passed": true,
+      "evidence": "source_fetcher.py implements cursor pagination: the `fetch_articles` generator loops `while True`, reads `next_page_token` from each response, and continues until token is None. It also honors `page_size` (default 500). It uses retry/backoff for 429/5xx as well."
+    },
+    {
+      "text": "Uses a watermark (e.g., updated_at) and INCREMENTAL reconciliation mode for hourly syncs, with a FULL first run.",
+      "passed": true,
+      "evidence": "connector.py reads/writes a watermark from `gs://{STAGING_BUCKET}/state/watermark.txt`. If no watermark exists, `mode = \"FULL\"`; otherwise `mode = \"INCREMENTAL\"`. Reconciliation mode is mapped to `ReconciliationMode.FULL` or `ReconciliationMode.INCREMENTAL` and used in ImportDocumentsRequest. The watermark tracks max(updated_at) across the fetched records and is advanced only on success."
+    },
+    {
+      "text": "Recommends a concrete scheduling mechanism (Cloud Scheduler → Cloud Run Job) for the hourly cadence.",
+      "passed": true,
+      "evidence": "response.md 'Bring-up sequence' step 6 deploys the connector as a Cloud Run Job, and step 8 schedules it with Cloud Scheduler: `gcloud scheduler jobs create http cms-connector-hourly --schedule \"0 * * * *\" --uri \"https://<region>-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT_ID/jobs/cms-connector:run\" ...`. Architecture section also states 'Runs on Cloud Run Jobs, triggered by Cloud Scheduler.'"
+    },
+    {
+      "text": "Makes the ACL strategy explicit — either idp_wide=True (if articles are org-wide readable) or per-document readers — not silently skipping ACL configuration.",
+      "passed": true,
+      "evidence": "transform.py builds explicit readers: `if record.get(\"is_public\"): readers = [{\"idp_wide\": True}]` else iterates `reader_users` (`external_user:` prefix) and `reader_groups` (`external_group:` prefix). It even adds a default-deny sentinel principal when no readers are provided. response.md Assumptions section explicitly discusses both per-document ACL and idp_wide=True alternatives. AclInfo is set on every Document via `discoveryengine.Document.AclInfo`."
+    },
+    {
+      "text": "Uses the google-cloud-discoveryengine Python SDK.",
+      "passed": true,
+      "evidence": "All Python files import `from google.cloud import discoveryengine_v1 as discoveryengine`. pyproject.toml lists `google-cloud-discoveryengine>=0.13.0` as a dependency. SDK clients used: `DocumentServiceClient`, `IdentityMappingStoreServiceClient`, `DataStoreServiceClient`, plus types like `ImportDocumentsRequest`, `GcsSource`, `Document`, `Principal`, `AclInfo`."
+    },
+    {
+      "text": "Sets acl_enabled=True at datastore creation time.",
+      "passed": true,
+      "evidence": "infra/create_datastore.py line 51: `acl_enabled=True,  # MUST be set at creation; cannot be added later.` inside `discoveryengine.DataStore(...)` of `CreateDataStoreRequest`. response.md also calls this out: '`acl_enabled=True` set at datastore creation (`infra/create_datastore.py`). Cannot be added later — forgetting forces a delete + full re-ingest.'"
+    },
+    {
+      "text": "Addresses how deletes are handled (PurgeDocuments, periodic FULL re-sync, or explicit acknowledgment that the source is append-only).",
+      "passed": true,
+      "evidence": "response.md has a dedicated 'Handling deletes (not in the hourly run)' section that proposes two concrete options: (1) Weekly FULL re-sync via `FORCE_FULL=true` Scheduler job; (2) `PurgeDocuments` on a delete feed with example call `client.purge_documents(filter='id: ANY(\"cms_article:123\",...)', force=True)`. It also notes INCREMENTAL never removes documents and recommends weekly FULL for 50k articles."
+    }
+  ],
+  "summary": {
+    "passed": 10,
+    "failed": 0,
+    "total": 10,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {
+    "output_chars": 29009,
+    "files_produced": 8,
+    "errors_encountered": 0
+  },
+  "timing": {
+    "executor_duration_seconds": 201.9,
+    "total_tokens": 48699
+  },
+  "claims": [
+    {
+      "claim": "Inline import caps at 100 docs/request and is incremental-only, making it unsuitable for 50k articles.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Matches Discovery Engine SDK documented behavior (InlineSource has a small per-request document limit and only supports incremental reconciliation). The justification supports the GCS choice."
+    },
+    {
+      "claim": "GCS import allows up to 100 files per request.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "connector.py enforces this constraint with `if len(uris) > 100: raise RuntimeError(...)`; matches the documented Discovery Engine GcsSource limit."
+    },
+    {
+      "claim": "acl_enabled and IMS binding cannot be added after datastore creation.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Consistent with Discovery Engine documentation; the code comment in create_datastore.py emphasizes 'MUST be set at creation; cannot be added later.' Correct caveat to surface."
+    },
+    {
+      "claim": "Watermark is only advanced on a successful import.",
+      "type": "process",
+      "verified": true,
+      "evidence": "connector.py calls `write_watermark(new_watermark)` only after `import_from_gcs(uris, mode=mode)` completes; if op.result() raises, the watermark is not updated, preserving idempotency on the next run."
+    },
+    {
+      "claim": "The IMS import uses bare external identities while ACLs prefix them with external_user:/external_group:.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "identity_mapping.sync_mappings passes `external_identity=e[\"external\"]` (bare). transform.to_document writes `external_user:{email}` / `external_group:{group}` in readers. Comment in identity_mapping.py explicitly calls out this asymmetry."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Uses GCS JSONL import (GcsSource) rather than inline import for the sync, given 50k documents.",
+        "reason": "The current assertion would pass on a response that merely mentions GcsSource. Consider strengthening it to check that the generated code actually writes JSONL shards to GCS AND submits an import request with `gcs_source=GcsSource(input_uris=...)` — a stronger discriminator against superficial mentions."
+      },
+      {
+        "assertion": "Uses a watermark and INCREMENTAL reconciliation mode for hourly syncs, with a FULL first run.",
+        "reason": "Consider also asserting that the watermark is persisted across runs (e.g., to GCS / Firestore / a state store) and only advanced on a successful import. The current scaffold does both, but an output that kept the watermark only in memory would also satisfy the literal assertion."
+      },
+      {
+        "reason": "No assertion checks that the connector handles transient errors (retry/backoff on 429/5xx) when calling the CMS API. The scaffold did implement this correctly, but a generated solution without retries would still pass all current assertions — worth catching for a 50k/hr pipeline."
+      },
+      {
+        "reason": "No assertion checks the GCS import 100-file/request limit is acknowledged or enforced. The scaffold raises if shards > 100, which is a meaningful correctness signal that no current assertion would catch."
+      }
+    ],
+    "overall": "Strong eval overall — the 10 assertions cover the major architectural decisions for a 50k/hourly CMS ingestion path. Suggestions above would tighten some assertions against superficial compliance and add coverage for retry/scaling correctness."
+  }
+}

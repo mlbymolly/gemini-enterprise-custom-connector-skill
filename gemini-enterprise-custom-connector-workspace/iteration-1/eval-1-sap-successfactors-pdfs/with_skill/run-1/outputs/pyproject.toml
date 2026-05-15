@@ -1,0 +1,11 @@
+[project]
+name = "sap-successfactors-hr-connector"
+version = "0.1.0"
+description = "Ingest SAP SuccessFactors HR policy PDFs into a Gemini Enterprise datastore."
+requires-python = ">=3.11"
+dependencies = [
+    "google-cloud-discoveryengine>=0.13.0",
+    "google-cloud-storage>=2.16.0",
+    "google-cloud-secret-manager>=2.20.0",
+    "requests>=2.32.0",
+]

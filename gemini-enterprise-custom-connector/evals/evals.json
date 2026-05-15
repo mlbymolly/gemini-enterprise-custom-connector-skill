@@ -1,0 +1,33 @@
+{
+  "skill_name": "gemini-enterprise-custom-connector",
+  "evals": [
+    {
+      "id": 0,
+      "name": "snowflake-warehouse-queries",
+      "prompt": "We use Gemini Enterprise and we need to let our agents query our Snowflake warehouse for sales data. What's the right approach and can you scaffold the connector?",
+      "expected_output": "Picks MCP server (not ingestion). Explains why ingestion is wrong for a warehouse. Scaffolds a Python MCP server with a run_query tool, OAuth/service-account auth options, StreamableHTTP transport, Cloud Run deployment. Includes guardrails (SELECT-only, row caps, statement timeout).",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "sap-successfactors-pdfs",
+      "prompt": "I have a bunch of HR policy PDFs in SAP SuccessFactors that I want our Gemini Enterprise agent to be able to cite. Help me build the connector — we use Workday for SSO and SAP user IDs don't match Google emails.",
+      "expected_output": "Picks ingestion connector (not MCP) because content is stable, document-style, and needs citations. Sets up an Identity Mapping Store because of the SAP user ID / Google email mismatch. Scaffolds Fetch → Transform → Sync pipeline using google-cloud-discoveryengine. Documents acl_enabled=True at datastore creation. Handles PDF mime type. Uses stable doc IDs.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "internal-cms-articles",
+      "prompt": "Scaffold a custom connector that ingests articles from our internal CMS (Postgres-backed REST API at api.internal/articles) into a Gemini Enterprise datastore. ~50k articles, hourly updates.",
+      "expected_output": "Picks ingestion connector. Scaffolds a Python connector with paginated fetch from the REST API, transform to Document with stable IDs, GCS JSONL import (not inline) because of volume. Cloud Scheduler + Cloud Run job for hourly sync. Watermark for incremental sync. ACL handling appropriate to a public-or-Google-identity CMS.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "both-paths-servicenow-fork",
+      "prompt": "We want our Gemini agent to both read knowledge articles AND create tickets in ServiceNow — except we use a fork of ServiceNow that isn't the native connector. How do I do this?",
+      "expected_output": "Identifies that both paths are needed: MCP server for the write action (create_ticket) and live KB reads if needed, ingestion connector for the knowledge corpus to enable grounded citations. Explains the split. Scaffolds at least the MCP side with a create_ticket tool. Discusses ACL model and which path enforces which.",
+      "files": []
+    }
+  ]
+}

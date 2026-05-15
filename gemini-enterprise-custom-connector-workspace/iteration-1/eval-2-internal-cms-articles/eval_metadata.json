@@ -1,0 +1,47 @@
+{
+  "eval_id": 2,
+  "eval_name": "internal-cms-articles",
+  "prompt": "Scaffold a custom connector that ingests articles from our internal CMS (Postgres-backed REST API at api.internal/articles) into a Gemini Enterprise datastore. ~50k articles, hourly updates.",
+  "assertions": [
+    {
+      "name": "picks_ingestion_connector",
+      "text": "Picks the ingestion connector path (Fetch → Transform → Sync into Discovery Engine), not an MCP server."
+    },
+    {
+      "name": "gcs_jsonl_import_not_inline",
+      "text": "Uses GCS JSONL import (GcsSource) rather than inline import for the sync, given 50k documents — explicitly or implicitly explains why inline doesn't scale."
+    },
+    {
+      "name": "stable_doc_ids_from_article_id",
+      "text": "Derives stable document IDs from the CMS article primary key, not random UUIDs."
+    },
+    {
+      "name": "paginated_rest_fetch",
+      "text": "Implements paginated reads from the REST API rather than assuming a single response."
+    },
+    {
+      "name": "watermark_for_incremental_sync",
+      "text": "Uses a watermark (e.g., updated_at) and INCREMENTAL reconciliation mode for hourly syncs, with a FULL first run."
+    },
+    {
+      "name": "scheduling_mechanism",
+      "text": "Recommends a concrete scheduling mechanism (Cloud Scheduler → Cloud Run Job) for the hourly cadence."
+    },
+    {
+      "name": "acl_strategy_explicit",
+      "text": "Makes the ACL strategy explicit — either idp_wide=True (if articles are org-wide readable) or per-document readers — not silently skipping ACL configuration."
+    },
+    {
+      "name": "uses_google_cloud_discoveryengine_sdk",
+      "text": "Uses the google-cloud-discoveryengine Python SDK."
+    },
+    {
+      "name": "acl_enabled_at_creation",
+      "text": "Sets acl_enabled=True at datastore creation time."
+    },
+    {
+      "name": "deletes_handled",
+      "text": "Addresses how deletes are handled (PurgeDocuments, periodic FULL re-sync, or explicit acknowledgment that the source is append-only)."
+    }
+  ]
+}

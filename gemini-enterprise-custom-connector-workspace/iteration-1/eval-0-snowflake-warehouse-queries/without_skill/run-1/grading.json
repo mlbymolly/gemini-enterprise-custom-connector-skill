@@ -1,0 +1,159 @@
+{
+  "expectations": [
+    {
+      "text": "Recommends Custom MCP Server as the primary path for the Snowflake warehouse use case (not a Discovery Engine ingestion connector replicating warehouse data).",
+      "passed": true,
+      "evidence": "response.md TL;DR: 'Stand up a Snowflake-managed MCP server in front of a Cortex Analyst semantic view, then register it in Gemini Enterprise as a *Custom MCP Server* data store with user-delegated OAuth.' The shape comparison table explicitly marks 'Custom MCP server data store' as 'Yes - this is the one.' and the document connector path as 'No.'"
+    },
+    {
+      "text": "Explains why ingesting a warehouse into Discovery Engine is the wrong pattern (live query semantics, scale, cost of replication).",
+      "passed": true,
+      "evidence": "response.md line 45: 'Stale snapshots, loses row-level security, can't answer aggregate questions (\"revenue by region last quarter\") because each row is an island.' Also TL;DR: 'without copying a single row out of Snowflake.' README.md: 'Sales data in a warehouse is *structured and live*. Replicating it into a Discovery Engine document store... gives you stale, denormalized snapshots and loses row-level security.'"
+    },
+    {
+      "text": "Specifies that the MCP server must use StreamableHTTP transport (NOT SSE, which Gemini Enterprise does not support).",
+      "passed": true,
+      "evidence": "data_store_config.yaml line 17: 'transport: \"STREAMABLE_HTTP\" # SSE is NOT supported'. response.md line 157: 'Transport: **must be `STREAMABLE_HTTP`** - the old SSE transport is not supported by this connector.' Also in register_data_store.sh as 'STREAMABLE_HTTP'."
+    },
+    {
+      "text": "Notes that the MCP endpoint must be HTTPS and conventionally ends in /mcp.",
+      "passed": true,
+      "evidence": "data_store_config.yaml line 15-16: '# From `DESC MCP SERVER GE_SALES_MCP;` -- always ends in /mcp' followed by 'url: \"https://<account-locator>.snowflakecomputing.com/api/v2/databases/SALES_DB/schemas/ANALYTICS/mcp-servers/GE_SALES_MCP/mcp\"' (HTTPS, ending in /mcp)."
+    },
+    {
+      "text": "Defines a tool surface that includes a SELECT-style run_query (or equivalent) tool, ideally with descriptive name and JSON Schema inputs.",
+      "passed": true,
+      "evidence": "04_create_mcp_server.sql defines two tools: 'sales_analyst' (CORTEX_ANALYST_MESSAGE) and 'run_sql' (SQL_EXEC) with descriptive names, titles, and descriptions. The run_sql tool description: 'Execute a SELECT statement against SALES_DB.ANALYTICS... Writes are blocked.' No explicit JSON Schema (the assertion marks this as 'ideally')."
+    },
+    {
+      "text": "Bakes in a guardrail that rejects non-SELECT statements (DDL/DML), rather than trusting string matching alone.",
+      "passed": true,
+      "evidence": "Structural guardrails: 01_create_role_and_warehouse.sql grants only SELECT (no INSERT/UPDATE/DELETE/CREATE) to GE_AGENT_ROLE. response.md production checklist: 'GE_AGENT_ROLE has **no** writes anywhere. The optional run_sql tool is wired to a read-only context.' This is privilege-based enforcement, stronger than string matching. The run_sql tool description states 'Writes are blocked.'"
+    },
+    {
+      "text": "Includes a row cap / LIMIT injection so a single tool call cannot return arbitrarily large result sets.",
+      "passed": false,
+      "evidence": "No row cap, LIMIT injection, or max-rows mechanism is mentioned anywhere in response.md, README.md, the SQL files, or the YAML config. The only 'cap' reference is to a 'hard credit cap' on the resource monitor, which limits credits, not rows. No mechanism prevents a SELECT * FROM huge_table from returning millions of rows."
+    },
+    {
+      "text": "Mentions a Snowflake statement timeout (e.g., STATEMENT_TIMEOUT_IN_SECONDS) to prevent runaway queries from burning warehouse credits.",
+      "passed": true,
+      "evidence": "response.md line 201-203 production checklist: 'Warehouse is XS, auto-suspend 60s, **statement timeout set** (`ALTER WAREHOUSE ... SET STATEMENT_TIMEOUT_IN_SECONDS = 60`) so a runaway agent query can't burn credits.'"
+    },
+    {
+      "text": "Discusses Snowflake auth options (service account / key pair / OAuth passthrough), not just one.",
+      "passed": false,
+      "evidence": "The response focuses on a single auth pattern: External OAuth / OAuth passthrough with user-delegated JWTs. Service accounts are only mentioned as an anti-pattern ('No service-account-with-superuser-grant anti-pattern' on line 95). Key pair authentication is not discussed at all. No comparison of multiple auth options is provided."
+    },
+    {
+      "text": "Recommends Cloud Run (or equivalent managed HTTPS hosting) for the MCP server.",
+      "passed": false,
+      "evidence": "Cloud Run is only mentioned as a fallback OpenAPI/agent-action option (lines 47 and 229), NOT as the deployment target for the MCP server. The recommended architecture uses Snowflake's managed MCP server running inside the Snowflake account itself (response.md line 51-55: 'Snowflake now ships a **managed MCP server** as a first-class object... It runs inside your Snowflake account, has no infrastructure for you to operate'). While defensible technically (Snowflake-hosted MCP is real), it does not satisfy this assertion."
+    },
+    {
+      "text": "Mentions including the offline_access scope so Gemini can refresh tokens.",
+      "passed": true,
+      "evidence": "response.md line 173: 'Expose a scope like `session:role-any` and include `offline_access`.' data_store_config.yaml line 39: 'scopes: \"offline_access api://<gemini-enterprise-app-id>/session:role-any\"'. register_data_store.sh defaults: 'SCOPES=\"${SCOPES:-offline_access}\"'."
+    },
+    {
+      "text": "Specifies the exact Gemini OAuth redirect URI (https://vertexaisearch.cloud.google.com/oauth-redirect) needed when registering the OAuth client.",
+      "passed": true,
+      "evidence": "response.md line 171-172: 'Redirect URI must be exactly `https://vertexaisearch.cloud.google.com/oauth-redirect`.' Also in README.md line 35 and data_store_config.yaml line 33."
+    },
+    {
+      "text": "Walks through registering the datastore in the Gemini Enterprise console (Custom MCP Server type, the fields to fill, the Reload custom actions step).",
+      "passed": false,
+      "evidence": "Two of three components are present: console path noted ('Data stores -> Create -> Custom MCP Server (Preview)' on response.md line 184 and data_store_config.yaml lines 6-9), and fields to fill are enumerated (data_store_config.yaml lists display_name, location, mcp URL, transport, oauth fields, scopes, enabled tools). However, the 'Reload custom actions' step explicitly called out in the assertion is NOT mentioned anywhere (grep for 'reload' returned no matches in any output file). The response mentions enabling the tool in the Actions tab (step 7) but not the Reload step."
+    }
+  ],
+  "summary": {
+    "passed": 9,
+    "failed": 4,
+    "total": 13,
+    "pass_rate": 0.69
+  },
+  "execution_metrics": {
+    "output_chars": 30327,
+    "files_produced": 9
+  },
+  "timing": {
+    "executor_duration_seconds": 256.6,
+    "total_duration_seconds": 256.6
+  },
+  "claims": [
+    {
+      "claim": "Snowflake ships a managed MCP server as a first-class SQL object via CREATE MCP SERVER",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Documented in Snowflake's own docs (referenced in Sources). The 04_create_mcp_server.sql file demonstrates the syntax with CREATE OR REPLACE MCP SERVER ... FROM SPECIFICATION."
+    },
+    {
+      "claim": "Gemini Enterprise's Custom MCP Server data store does not support SSE transport",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Consistent with the eval's own assertion specifying StreamableHTTP, NOT SSE. Stated repeatedly in outputs."
+    },
+    {
+      "claim": "The redirect URI for Gemini Enterprise OAuth is exactly https://vertexaisearch.cloud.google.com/oauth-redirect",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Matches the URI specified in the eval assertion oauth_redirect_uri_exact."
+    },
+    {
+      "claim": "By default no tools from a custom MCP server are enabled — must be flipped on in Actions tab",
+      "type": "factual",
+      "verified": true,
+      "evidence": "response.md line 186-189 states this as 'the #1 reason \"my connector is registered but the agent ignores it.\"' Plausible and aligned with the documented behavior of GE custom MCP servers."
+    },
+    {
+      "claim": "End-user identity is propagated to Snowflake via JWT upn/email claim mapping, enabling row-access and masking policies",
+      "type": "process",
+      "verified": true,
+      "evidence": "02_external_oauth_integration.sql sets EXTERNAL_OAUTH_TOKEN_USER_MAPPING_CLAIM = 'upn' and EXTERNAL_OAUTH_SNOWFLAKE_USER_MAPPING_ATTRIBUTE = 'LOGIN_NAME', which is the standard Snowflake External OAuth pattern."
+    },
+    {
+      "claim": "The scaffold provides a complete production-ready setup",
+      "type": "quality",
+      "verified": false,
+      "evidence": "Several production guardrails are MISSING: no row cap/LIMIT injection, no JSON Schema for tool inputs, alternative auth modes (key pair, service-account fallback) are not discussed. Most placeholders (ISSUER_URL, AUDIENCE, tenant-id, account-locator) require manual filling. Statement timeout is in the checklist but not pre-baked in 01_create_role_and_warehouse.sql."
+    },
+    {
+      "claim": "Cortex Analyst with a semantic view is more reliable than letting the LLM write SQL against raw tables",
+      "type": "quality",
+      "verified": true,
+      "evidence": "Generally accepted in the data-warehouse + LLM community, and aligned with Snowflake's positioning of Cortex Analyst. The 03_semantic_view.sql provides a credible semantic layer with facts, dimensions, metrics, and synonyms."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Recommends Cloud Run (or equivalent managed HTTPS hosting) for the MCP server.",
+        "reason": "This assertion assumes the user will self-host an MCP server, but Snowflake now ships a managed MCP server (CREATE MCP SERVER) that runs inside the Snowflake account itself. The output's architecture is technically valid and arguably better (no infra to operate, no proxy hop), but fails the assertion as written. Consider broadening to 'Recommends a concrete deployment target with managed HTTPS (Cloud Run, Snowflake-managed MCP, GKE, etc.)' or splitting into two assertions: one for the architectural choice and one for cost/credit guardrails."
+      },
+      {
+        "assertion": "Discusses Snowflake auth options (service account / key pair / OAuth passthrough), not just one.",
+        "reason": "The output makes a strong, defensible argument that OAuth passthrough is THE right choice for this use case and treats service-account-with-superuser as an anti-pattern. The assertion penalizes a strong recommendation in favor of breadth. Consider rephrasing to 'Justifies its choice of Snowflake auth mechanism, addressing why service accounts are insufficient for end-user attribution' — that rewards reasoning rather than enumeration."
+      },
+      {
+        "assertion": "Bakes in a guardrail that rejects non-SELECT statements (DDL/DML), rather than trusting string matching alone.",
+        "reason": "The output relies on Snowflake role-level SELECT-only grants, which is a strong structural guardrail (better than parser-based string matching). The assertion as written could be passed by output that does a regex check on the statement — which would be brittle. Tighten to 'Uses a privilege/role-based mechanism (not just parser-based rejection) to prevent writes' to reward the stronger pattern."
+      },
+      {
+        "reason": "No assertion checks for end-user identity propagation / row-level security — which is arguably the most important security property for a warehouse connector. The output handles this well via External OAuth, but a weaker output could pass all current assertions while running every query as a single service account, defeating Snowflake's RBAC. Consider adding an assertion: 'Queries execute as the end user (identity propagation), not a shared service principal, so row-access and masking policies apply.'"
+      },
+      {
+        "reason": "No assertion checks that the response correctly identifies Cortex Analyst / semantic views as the preferred text-to-SQL surface (vs raw SQL execution). This is a major correctness/quality differentiator that the output handles well — but a response that recommends raw run_sql with no semantic layer would also pass all current assertions."
+      },
+      {
+        "assertion": "Walks through registering the datastore in the Gemini Enterprise console (Custom MCP Server type, the fields to fill, the Reload custom actions step).",
+        "reason": "The 'Reload custom actions step' is very specific to one version of the GE console UI and may not survive UI changes. Consider rephrasing as 'mentions that custom actions/tools must be explicitly enabled (not on by default) after registration' — that captures the underlying gotcha without depending on a specific button label."
+      }
+    ],
+    "overall": "Assertions are mostly well-targeted at the security/cost guardrails that matter for a warehouse use case. The two most discriminating ones (row cap, multiple auth options) correctly caught real gaps. The Cloud Run assertion is over-specified given Snowflake-managed MCP is now the default path. No assertion checks identity propagation or Cortex Analyst — the two highest-leverage design choices the output got right."
+  }
+}

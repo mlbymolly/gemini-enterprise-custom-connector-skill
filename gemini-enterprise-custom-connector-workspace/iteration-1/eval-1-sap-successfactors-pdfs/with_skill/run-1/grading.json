@@ -1,0 +1,139 @@
+{
+  "expectations": [
+    {
+      "text": "Recommends a Discovery Engine ingestion connector (not an MCP server) because the content is static documents that need to be cited and ACL-enforced at query time.",
+      "passed": true,
+      "evidence": "response.md 'Why this path (and not an MCP server)' section walks the decision tree: 'HR policies are stable documents... A periodically refreshed snapshot is fine. (Ingestion.)' and concludes 'Three-for-three on ingestion.' TL;DR labels it 'Custom Connector → Discovery Engine datastore (ingestion path).'"
+    },
+    {
+      "text": "Identifies that an Identity Mapping Store is required because SAP user IDs do not match Google Workspace identities, and shows how to create one BEFORE the datastore (it cannot be added later).",
+      "passed": true,
+      "evidence": "response.md: 'Your statement \"SAP user IDs don't match Google emails\" is exactly the case the IMS exists to solve.' Setup order section: 'The IMS and acl_enabled are both immutable at datastore creation... 1. Create the IMS first. 2. Create the datastore second...' infra/create_datastore.py calls create_ims() then create_datastore(ims_name) in that order."
+    },
+    {
+      "text": "Sets acl_enabled=True at datastore creation time and explains that it cannot be added later.",
+      "passed": true,
+      "evidence": "infra/create_datastore.py line 64: 'acl_enabled=True,                              # immutable'. Module docstring: 'CRITICAL: acl_enabled=True and identity_mapping_store both can ONLY be set at datastore creation. If you forget either, you have to delete the datastore and re-create it...'"
+    },
+    {
+      "text": "Passes the identity_mapping_store reference into create_data_store using the full resource name format (projects/.../identityMappingStores/...).",
+      "passed": true,
+      "evidence": "infra/create_datastore.py create_ims() returns 'projects/{PROJECT_ID}/locations/{LOCATION}/identityMappingStores/{IMS_ID}'. create_data_store call passes identity_mapping_store=ims_name (line 65) which contains the full resource name."
+    },
+    {
+      "text": "Documents the asymmetry: external identities are imported WITHOUT the external_user:/external_group: prefix, but referenced WITH the prefix in document ACLs.",
+      "passed": true,
+      "evidence": "response.md: 'when you import mappings into the IMS, the external identity is bare (\"EMEA_HR_MANAGERS\"). When you reference that identity in a document’s ACL, you prefix it (\"external_group:EMEA_HR_MANAGERS\").' identity_mapping.py docstring repeats this; the import uses external_identity=e['external'] (bare), while transform.py uses group_id=f'external_group:{group_id}' (prefixed)."
+    },
+    {
+      "text": "Uses stable document IDs derived from the SAP source primary key, not random UUIDs.",
+      "passed": true,
+      "evidence": "transform.py line 26: 'doc_id = f\"sf:dms:{policy.document_id}\"'. response.md: 'Every doc uses id = f\"sf:dms:{documentId}\". SF’s documentId is the DMS primary key, so re-syncs upsert cleanly... Never use uuid4() here.'"
+    },
+    {
+      "text": "Handles PDF binary content via raw_bytes with mime_type=application/pdf, relying on Discovery Engine server-side extraction.",
+      "passed": true,
+      "evidence": "transform.py: content=discoveryengine.Document.Content(raw_bytes=policy.body_bytes, mime_type=policy.mime_type). response.md: 'PDF bytes go in as content.raw_bytes with mime_type=\"application/pdf\". Discovery Engine does the text extraction server-side.'"
+    },
+    {
+      "text": "Uses the google-cloud-discoveryengine Python SDK (DocumentServiceClient, DataStoreServiceClient, IdentityMappingStoreServiceClient).",
+      "passed": true,
+      "evidence": "connector.py imports 'from google.cloud import discoveryengine_v1' and uses discoveryengine.DocumentServiceClient(). infra/create_datastore.py uses DataStoreServiceClient and IdentityMappingStoreServiceClient. identity_mapping.py uses IdentityMappingStoreServiceClient via import_identity_mappings."
+    },
+    {
+      "text": "Organizes the connector code into the three-stage Fetch → Transform → Sync pipeline.",
+      "passed": true,
+      "evidence": "connector.py docstring: 'Orchestrates: Fetch (SuccessFactors OData) -> Transform (Document payload) -> Sync (JSONL on GCS -> Discovery Engine import_documents).' Code is split into source_fetcher.py (Fetch), transform.py (Transform), and connector.py orchestration with write_jsonl_to_gcs + import_from_gcs (Sync)."
+    },
+    {
+      "text": "Mentions scheduled sync (e.g., Cloud Scheduler + Cloud Run job) and the FULL vs. INCREMENTAL reconciliation distinction.",
+      "passed": true,
+      "evidence": "response.md architecture diagram: '[ Cloud Run Job: connector.py ]' and 'import_documents (FULL on first run, INCREMENTAL after)'. connector.py uses SYNC_MODE env var and discoveryengine.ImportDocumentsRequest.ReconciliationMode.FULL vs INCREMENTAL. Assumptions: 'Connector runs on Cloud Run Jobs with workload identity. Cloud Scheduler kicks it off.' Deletes section mentions 'weekly FULL reconciliation by setting SYNC_MODE=FULL on a separate Cloud Scheduler trigger.'"
+    }
+  ],
+  "summary": {
+    "passed": 10,
+    "failed": 0,
+    "total": 10,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {
+    "tool_calls": {},
+    "total_tool_calls": 0,
+    "total_steps": 0,
+    "errors_encountered": 0,
+    "output_chars": 41468,
+    "transcript_chars": 0
+  },
+  "timing": {
+    "executor_duration_seconds": 263.8,
+    "total_duration_seconds": 263.8
+  },
+  "claims": [
+    {
+      "claim": "import_documents accepts up to 100 input_uris per request and 100MB per file with dataSchema=content.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "These are documented Discovery Engine limits commonly cited in the skill recipes; the connector chunks shards at 200 docs each and groups URIs into batches of 100 accordingly."
+    },
+    {
+      "claim": "Used the three-stage Fetch → Transform → Sync pattern from the skill.",
+      "type": "process",
+      "verified": true,
+      "evidence": "Files match the pattern: source_fetcher.py (Fetch), transform.py (Transform), connector.py (Sync orchestration to GCS + import_documents)."
+    },
+    {
+      "claim": "Refreshing IMS BEFORE document import means a new hire's first-day query is served correctly.",
+      "type": "quality",
+      "verified": true,
+      "evidence": "connector.run() calls sync_identity_mappings_from_workday() as step 1 before any document fetch/transform/sync, supporting the claim."
+    },
+    {
+      "claim": "Default-deny ACL bug: empty principals means nobody can read the doc.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "transform.py explicitly leaves principals=[] when no rbp_groups and not all_employees, and response.md flags this as a known sharp edge with a recommended fallback."
+    },
+    {
+      "claim": "SF OAuth uses saml2-bearer grant type and the SAML assertion is required.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "source_fetcher.py sets grant_type='urn:ietf:params:oauth:grant-type:saml2-bearer' — the standard SuccessFactors OAuth flow. SAML assertion construction is correctly noted as a stub to be plugged in."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [
+      "SF entity that actually holds the policies (DMSDocument vs alternate)",
+      "SF category IDs for HR content (currently stubbed)",
+      "Whether Workday already provisions matching Google Groups",
+      "Custom Workday Worker field name holding SAP user id",
+      "Refresh cadence"
+    ],
+    "needs_review": [
+      "SAML assertion builder is a NotImplementedError stub",
+      "Workday client calls are NotImplementedError stubs"
+    ],
+    "workarounds": [
+      "Default-deny ACL behavior — recommends adding a tenant-wide fallback group or warning log"
+    ]
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Sets acl_enabled=True at datastore creation time and explains that it cannot be added later.",
+        "reason": "A response that just hard-codes acl_enabled=True without mentioning immutability would also pass. Consider strengthening: verify the output explicitly states both acl_enabled and identity_mapping_store cannot be patched post-creation."
+      },
+      {
+        "assertion": "Mentions scheduled sync (e.g., Cloud Scheduler + Cloud Run job) and the FULL vs. INCREMENTAL reconciliation distinction.",
+        "reason": "The assertion combines two distinct ideas. A response mentioning Cloud Scheduler and INCREMENTAL but never explaining what INCREMENTAL does (e.g., that it doesn't delete) could still pass. Consider splitting into two assertions, including the deletion-semantics point."
+      },
+      {
+        "reason": "No assertion verifies that the watermark / delta-fetch pattern uses lastModifiedDateTime (or equivalent) to constrain the source query — a common bug is INCREMENTAL imports that still pull every row."
+      },
+      {
+        "reason": "No assertion verifies the IMS import uses the InlineSource/ImportIdentityMappings API correctly (a hallucinated method like add_mapping() would pass everything else)."
+      }
+    ],
+    "overall": "Assertions cover the major architectural decisions well, with several discriminating items (asymmetric prefixing, IMS-before-datastore order). A couple of assertions could be tightened to require explicit explanation of immutability/deletion semantics rather than mere presence."
+  }
+}

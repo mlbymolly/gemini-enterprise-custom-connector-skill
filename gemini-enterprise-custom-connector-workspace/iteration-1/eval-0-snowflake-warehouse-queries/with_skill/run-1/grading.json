@@ -1,0 +1,167 @@
+{
+  "expectations": [
+    {
+      "text": "Recommends Custom MCP Server as the primary path for the Snowflake warehouse use case (not a Discovery Engine ingestion connector replicating warehouse data).",
+      "passed": true,
+      "evidence": "response.md heading 'Recommendation: custom MCP server (not an ingestion connector)' and: 'For a Snowflake warehouse holding sales data, the right answer is **MCP server**.' README also has section 'Why MCP (not an ingestion connector)'."
+    },
+    {
+      "text": "Explains why ingesting a warehouse into Discovery Engine is the wrong pattern (live query semantics, scale, cost of replication).",
+      "passed": true,
+      "evidence": "response.md: 'Replicating it into a Discovery Engine search index doubles your storage cost, loses Snowflake's SQL semantics (joins, aggregations, window functions), and serves stale data. Sales questions (...) require live state and SQL'. Covers cost, semantics, and staleness."
+    },
+    {
+      "text": "Specifies that the MCP server must use StreamableHTTP transport (NOT SSE, which Gemini Enterprise does not support).",
+      "passed": true,
+      "evidence": "response.md: '**StreamableHTTP transport, not SSE.** Gemini's MCP client will refuse SSE.' server.py: 'mcp.run(transport=\"streamable-http\", host=\"0.0.0.0\", port=8080, path=\"/mcp\")' with comment 'SSE is NOT supported by Gemini Enterprise.'"
+    },
+    {
+      "text": "Notes that the MCP endpoint must be HTTPS and conventionally ends in /mcp.",
+      "passed": true,
+      "evidence": "response.md: '**HTTPS endpoint, conventionally `/mcp`.** Cloud Run gives you HTTPS automatically'. Also 'MCP URL `https://<cloud-run-host>/mcp`'. server.py runs with path='/mcp'."
+    },
+    {
+      "text": "Defines a tool surface that includes a SELECT-style run_query (or equivalent) tool, ideally with descriptive name and JSON Schema inputs.",
+      "passed": true,
+      "evidence": "server.py defines @mcp.tool() run_query(sql: str, max_rows: int = 100) -> dict with detailed docstring (FastMCP generates JSON Schema from type annotations). Tool surface also includes list_tables, describe_table, get_record."
+    },
+    {
+      "text": "Bakes in a guardrail that rejects non-SELECT statements (DDL/DML), rather than trusting string matching alone.",
+      "passed": true,
+      "evidence": "source_client.py _validate_select_only uses sqlglot.parse with snowflake dialect, checks FORBIDDEN_STATEMENT_TYPES (Insert, Update, Delete, Merge, Create, Drop, Alter, TruncateTable, Command). response.md explicitly says: 'parsed with sqlglot in `snowflake` dialect. String matching (...) is not enough'."
+    },
+    {
+      "text": "Includes a row cap / LIMIT injection so a single tool call cannot return arbitrarily large result sets.",
+      "passed": true,
+      "evidence": "source_client.py defines HARD_ROW_CAP = 1000 and _inject_limit wraps the parsed statement with parsed.limit(capped); max_rows is capped via min(max_rows, 1000) in both server.py and source_client.py."
+    },
+    {
+      "text": "Mentions a Snowflake statement timeout (e.g., STATEMENT_TIMEOUT_IN_SECONDS) to prevent runaway queries from burning warehouse credits.",
+      "passed": true,
+      "evidence": "source_client.py sets session_parameters={'STATEMENT_TIMEOUT_IN_SECONDS': STATEMENT_TIMEOUT_SECONDS} where STATEMENT_TIMEOUT_SECONDS=60. response.md: '`STATEMENT_TIMEOUT_IN_SECONDS = 60` is set at the session level so a runaway query can't burn a hole in your bill.'"
+    },
+    {
+      "text": "Discusses Snowflake auth options (service account / key pair / OAuth passthrough), not just one.",
+      "passed": true,
+      "evidence": "response.md 'Auth model' section discusses both model 1 (service account with key-pair auth) and model 2 (Snowflake External OAuth passthrough). README also covers both. source_client.py comments reference switching to OAuth passthrough using authenticator='oauth'."
+    },
+    {
+      "text": "Recommends Cloud Run (or equivalent managed HTTPS hosting) for the MCP server.",
+      "passed": true,
+      "evidence": "response.md: 'Cloud Run gives you HTTPS automatically; that's why it's the deploy target.' README has full 'Deploy to Cloud Run' section with `gcloud run deploy` command. Dockerfile is structured for Cloud Run."
+    },
+    {
+      "text": "Mentions including the offline_access scope so Gemini can refresh tokens.",
+      "passed": true,
+      "evidence": "response.md: 'you must include `offline_access` in scopes so refresh tokens are issued.' README: 'Scopes defined for your tools; include `offline_access`.' Also called out as a failure mode: 'Random 401s mid-session → missing `offline_access` scope, so no refresh token.'"
+    },
+    {
+      "text": "Specifies the exact Gemini OAuth redirect URI (https://vertexaisearch.cloud.google.com/oauth-redirect) needed when registering the OAuth client.",
+      "passed": true,
+      "evidence": "response.md: 'The IdP must have `https://vertexaisearch.cloud.google.com/oauth-redirect` registered as a redirect URI exactly'. README: 'OAuth app registered with redirect URI **exactly** `https://vertexaisearch.cloud.google.com/oauth-redirect` (no trailing slash).'"
+    },
+    {
+      "text": "Walks through registering the datastore in the Gemini Enterprise console (Custom MCP Server type, the fields to fill, the Reload custom actions step).",
+      "passed": true,
+      "evidence": "response.md 'Deployment flow' steps 5-7: 'Gemini Enterprise → Data stores → Create data store → Custom MCP Server. Fill in MCP URL ... your IdP auth/token URLs, the client ID/secret, and scopes (with `offline_access`). Click **Login** ... After creation: **Datastore → Actions → Reload custom actions.**' README 'Register the datastore in Gemini Enterprise' section covers same steps in detail."
+    }
+  ],
+  "summary": {
+    "passed": 13,
+    "failed": 0,
+    "total": 13,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {
+    "tool_calls": {},
+    "total_tool_calls": null,
+    "total_steps": null,
+    "errors_encountered": 0,
+    "output_chars": 30439,
+    "transcript_chars": null
+  },
+  "timing": {
+    "executor_duration_seconds": 196.2,
+    "total_duration_seconds": 196.2
+  },
+  "claims": [
+    {
+      "claim": "FastMCP server uses StreamableHTTP transport on /mcp",
+      "type": "process",
+      "verified": true,
+      "evidence": "server.py: mcp.run(transport='streamable-http', host='0.0.0.0', port=8080, path='/mcp')"
+    },
+    {
+      "claim": "run_query uses sqlglot (not regex) to parse SQL and reject non-SELECT statements",
+      "type": "process",
+      "verified": true,
+      "evidence": "source_client.py imports sqlglot, parses with read='snowflake', and checks FORBIDDEN_STATEMENT_TYPES set including Insert/Update/Delete/Merge/Create/Drop/Alter/TruncateTable/Command."
+    },
+    {
+      "claim": "Server always injects a LIMIT based on max_rows with a hard cap of 1000",
+      "type": "factual",
+      "verified": true,
+      "evidence": "HARD_ROW_CAP = 1000 in source_client.py; _inject_limit caps via min(max_rows, HARD_ROW_CAP); server.py also wraps max_rows in min(max_rows, 1000)."
+    },
+    {
+      "claim": "Statement timeout of 60 seconds applied at session level",
+      "type": "factual",
+      "verified": true,
+      "evidence": "STATEMENT_TIMEOUT_SECONDS = 60 passed in session_parameters during connect()."
+    },
+    {
+      "claim": "Four tools are exposed: list_tables, describe_table, run_query, get_record",
+      "type": "factual",
+      "verified": true,
+      "evidence": "server.py defines exactly these four @mcp.tool() functions."
+    },
+    {
+      "claim": "OAuth bearer token is validated via IdP introspection (RFC 7662)",
+      "type": "process",
+      "verified": true,
+      "evidence": "auth.py POSTs to OAUTH_INTROSPECT_URL with token and HTTP basic client credentials, checks claims['active']."
+    },
+    {
+      "claim": "Cloud Run deployment uses --allow-unauthenticated because OAuth in auth.py is the auth boundary",
+      "type": "quality",
+      "verified": true,
+      "evidence": "README and response.md both explicitly justify --allow-unauthenticated: 'the OAuth check in `auth.py` is the auth boundary; Gemini's caller isn't a Google identity Cloud Run IAM can be granted to.' This is technically reasonable for the Gemini Enterprise MCP pattern."
+    },
+    {
+      "claim": "Private key for Snowflake is stored in Google Secret Manager",
+      "type": "process",
+      "verified": true,
+      "evidence": "source_client.py uses google.cloud.secretmanager to load PEM via access_secret_version."
+    },
+    {
+      "claim": "Dockerfile installs deps and runs server.py",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Dockerfile uses python:3.12-slim, pip installs from pyproject.toml, exposes 8080, runs python server.py."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Notes that the MCP endpoint must be HTTPS and conventionally ends in /mcp.",
+        "reason": "This assertion is satisfied by any response that just says 'use HTTPS and /mcp.' Consider also requiring the scaffolded server.py to actually configure path='/mcp' on the transport, which is the failure mode that bites people in practice."
+      },
+      {
+        "reason": "No assertion checks that the scaffolded code includes inbound OAuth bearer-token validation (a key Gemini Enterprise MCP requirement). The output here implements auth.py with introspection, but a response that omitted inbound auth entirely could still pass all 13 current assertions."
+      },
+      {
+        "reason": "No assertion checks for Discovery Engine org policy / IAM prerequisites (constraints/discoveryengine.allowedCustomMcpDatastores, Discovery Engine Editor role). These are real-world blockers callers often miss; the model surfaced them here, but the eval doesn't reward that."
+      },
+      {
+        "assertion": "Defines a tool surface that includes a SELECT-style run_query (or equivalent) tool, ideally with descriptive name and JSON Schema inputs.",
+        "reason": "Assertion is loosely phrased ('ideally with'). A response that defined run_query without any input schema/type hints would still pass. Consider tightening to require typed parameters or a JSON Schema spec."
+      }
+    ],
+    "overall": "Assertions cover the core Gemini-Enterprise-MCP best practices well, but a few are satisfied by surface-level mentions rather than a working scaffold. Worth adding assertions on inbound OAuth validation and tool-input typing."
+  }
+}
